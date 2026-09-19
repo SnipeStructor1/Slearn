@@ -102,7 +102,13 @@ export function Profile({ onNavigate }: { onNavigate?: (page: 'admin') => void }
           </div>
           <div className="flex items-center justify-between text-sm">
             <span className="text-gray-400">User ID</span>
-            <span className="text-gray-500 font-mono text-xs">{user.id.slice(0, 8)}...</span>
+            <code className="max-w-[70%] break-all text-right text-xs text-gray-500">{user.id}</code>
+          </div>
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-gray-400">Role</span>
+            <code className={`text-xs font-semibold ${isAdmin ? 'text-cyan-300' : 'text-gray-500'}`}>
+              {profile?.role || 'not loaded'}
+            </code>
           </div>
           <div className="flex items-center justify-between text-sm">
             <span className="text-gray-400">Last studied</span>

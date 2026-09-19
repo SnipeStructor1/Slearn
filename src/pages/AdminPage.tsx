@@ -4,12 +4,12 @@ import {
   ChevronRight, X, KeyRound, Check, AlertCircle, Loader2, Save,
   BookOpen, Trash2, ChevronDown, UserCog, Activity,
 } from 'lucide-react';
-import { supabase, type StudySet, type Flashcard, type Profile, type AppSettings } from '@/lib/supabase';
+import { supabase, type StudySet, type Flashcard, type Profile, type AppSettings, type AdminAuditLog } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth-context';
 import { getTheme, getIcon } from '@/lib/themes';
 import { subjects } from '@/lib/mock-data';
 
-type AdminTab = 'sets' | 'users' | 'settings';
+type AdminTab = 'overview' | 'sets' | 'users' | 'settings';
 type SetDetail = { set: StudySet; cards: Flashcard[]; ownerName: string } | null;
 
 export function AdminPage({ onBack }: { onBack: () => void }) {
@@ -47,6 +47,7 @@ export function AdminPage({ onBack }: { onBack: () => void }) {
   }
 
   const tabs: { key: AdminTab; label: string; icon: typeof Layers }[] = [
+    { key: 'overview', label: 'Overview', icon: Activity },
     { key: 'sets', label: 'Study Sets', icon: Layers },
     { key: 'users', label: 'Users', icon: Users },
     { key: 'settings', label: 'API Settings', icon: Settings },
@@ -106,10 +107,118 @@ export function AdminPage({ onBack }: { onBack: () => void }) {
 
         {/* Content */}
         <div className="min-w-0 flex-1">
+          {tab === 'overview' && <AdminOverviewPanel />}
           {tab === 'sets' && <AdminSetsPanel />}
           {tab === 'users' && <AdminUsersPanel />}
           {tab === 'settings' && <AdminSettingsPanel />}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// =====================
+// Admin Overview Panel
+// =====================
+function AdminOverviewPanel() {
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [stats, setStats] = useState({ users: 0, admins: 0, sets: 0, publicSets: 0 });
+  const [activity, setActivity] = useState<AdminAuditLog[]>([]);
+
+  const fetchOverview = useCallback(async (showLoading = true) => {
+    if (showLoading) setLoading(true);
+    else setRefreshing(true);
+
+    const [usersResult, adminsResult, setsResult, publicSetsResult, activityResult] = await Promise.all([
+      supabase.from('profiles').select('id', { count: 'exact', head: true }),
+      supabase.from('profiles').select('id', { count: 'exact', head: true }).ilike('role', 'admin'),
+      supabase.from('study_sets').select('id', { count: 'exact', head: true }),
+      supabase.from('study_sets').select('id', { count: 'exact', head: true }).eq('visibility', 'public'),
+      supabase.from('admin_audit_log').select('*').order('created_at', { ascending: false }).limit(8),
+    ]);
+
+    setStats({
+      users: usersResult.count || 0,
+      admins: adminsResult.count || 0,
+      sets: setsResult.count || 0,
+      publicSets: publicSetsResult.count || 0,
+    });
+    setActivity((activityResult.data as AdminAuditLog[]) || []);
+    setLoading(false);
+    setRefreshing(false);
+  }, []);
+
+  useEffect(() => { fetchOverview(); }, [fetchOverview]);
+
+  if (loading) {
+    return (
+      <div className="space-y-4">
+        <div className="h-8 w-48 animate-shimmer rounded-lg" />
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {[...Array(4)].map((_, i) => <div key={i} className="h-24 animate-shimmer rounded-xl" />)}
+        </div>
+      </div>
+    );
+  }
+
+  const cards = [
+    { label: 'Total Users', value: stats.users, color: 'text-white' },
+    { label: 'Administrators', value: stats.admins, color: 'text-cyan-300' },
+    { label: 'Study Sets', value: stats.sets, color: 'text-emerald-300' },
+    { label: 'Public Sets', value: stats.publicSets, color: 'text-orange-300' },
+  ];
+
+  return (
+    <div>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-xl font-bold text-white">Platform Overview</h2>
+          <p className="mt-1 text-sm text-gray-400">A quick view of platform health and recent admin actions</p>
+        </div>
+        <button
+          onClick={() => fetchOverview(false)}
+          disabled={refreshing}
+          className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs font-medium text-gray-300 transition-all hover:bg-white/10 disabled:opacity-60"
+        >
+          <Activity size={14} className={refreshing ? 'animate-pulse' : ''} />
+          Refresh
+        </button>
+      </div>
+
+      <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {cards.map((card) => (
+          <div key={card.label} className="rounded-xl border border-white/5 bg-white/[0.02] p-4">
+            <p className={`text-2xl font-bold ${card.color}`}>{card.value}</p>
+            <p className="mt-1 text-xs text-gray-400">{card.label}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-6 rounded-xl border border-white/5 bg-white/[0.02]">
+        <div className="flex items-center gap-2 border-b border-white/5 px-5 py-4">
+          <Activity size={17} className="text-cyan-400" />
+          <h3 className="text-sm font-semibold text-white">Recent Admin Activity</h3>
+        </div>
+        {activity.length === 0 ? (
+          <p className="px-5 py-8 text-center text-sm text-gray-500">No admin activity recorded yet.</p>
+        ) : (
+          <div className="divide-y divide-white/5">
+            {activity.map((entry) => (
+              <div key={entry.id} className="flex items-center justify-between gap-4 px-5 py-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm text-gray-200">{entry.action.replace(/_/g, ' ')}</p>
+                  <p className="mt-0.5 text-xs text-gray-500">
+                    {entry.target_type || 'platform'}{entry.target_id ? ` · ${entry.target_id.slice(0, 8)}...` : ''}
+                  </p>
+                </div>
+                <time className="flex-shrink-0 text-xs text-gray-500">
+                  {new Date(entry.created_at).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}
+                </time>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
