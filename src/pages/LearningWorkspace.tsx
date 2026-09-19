@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  Bot, FileText, Image, Paperclip, Send, Sparkles, Upload, X, ClipboardCheck, Layers3, CalendarDays, Save,
+  Bot, FileText, Image, Paperclip, Send, Sparkles, Upload, X, ClipboardCheck, Layers3, CalendarDays, Save, ChevronDown, LockKeyhole,
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import { supabase, type WorkspaceFile as StoredWorkspaceFile } from '@/lib/supabase';
@@ -16,6 +16,9 @@ export function LearningWorkspace({ onNavigate }: Props) {
   const [savingNotes, setSavingNotes] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [activeTool, setActiveTool] = useState('assistant');
+  const [creationMenuOpen, setCreationMenuOpen] = useState(false);
+  const [apiKeyReady, setApiKeyReady] = useState<boolean | null>(null);
+  const [apiKeyMessage, setApiKeyMessage] = useState('');
   const [question, setQuestion] = useState('');
   const [messages, setMessages] = useState<{ role: 'assistant' | 'user'; text: string }[]>([
     { role: 'assistant', text: 'Ich bin bereit. Lade Lernmaterial hoch oder stelle mir eine Frage zu deinen Notizen.' },
@@ -33,6 +36,26 @@ export function LearningWorkspace({ onNavigate }: Props) {
       setFiles((storedFiles as StoredWorkspaceFile[]) || []);
     })();
   }, [user]);
+
+  const startCreation = async (tool: string) => {
+    setActiveTool(tool);
+    setCreationMenuOpen(false);
+    const { data, error } = await supabase
+      .from('app_settings')
+      .select('ai_key_active, ai_provider')
+      .eq('id', 1)
+      .maybeSingle();
+
+    if (error || !data?.ai_key_active) {
+      setApiKeyReady(false);
+      setApiKeyMessage('Diese KI-Funktion ist bereit. Ein Administrator muss zuerst den API-Key in den Einstellungen hinterlegen.');
+      return;
+    }
+
+    setApiKeyReady(true);
+    const label = tool === 'test' ? 'Test' : tool === 'cards' ? 'Lernkarten' : 'Lernplan';
+    setApiKeyMessage(`${data.ai_provider || 'KI'} ist verbunden. ${label} kann aus deinem privaten Lernkontext erstellt werden.`);
+  };
 
   const saveNotes = async () => {
     if (!user) return;
@@ -98,6 +121,28 @@ export function LearningWorkspace({ onNavigate }: Props) {
             Strukturieren und Üben.
           </p>
         </div>
+        <div className="relative">
+          <button
+            onClick={() => setCreationMenuOpen((open) => !open)}
+            className="flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-cyan-500/20 transition-all hover:brightness-110"
+          >
+            <Sparkles size={17} /> Erstellen <ChevronDown size={15} />
+          </button>
+          {creationMenuOpen && (
+            <div className="absolute right-0 top-full z-20 mt-2 w-64 rounded-xl border border-white/10 bg-[#12121a] p-2 shadow-2xl">
+              {[
+                { id: 'test', icon: ClipboardCheck, title: 'Test erstellen', description: 'Prüfung aus deinem Kontext' },
+                { id: 'cards', icon: Layers3, title: 'Lernkarten erstellen', description: 'Kernwissen kompakt aufbereiten' },
+                { id: 'plan', icon: CalendarDays, title: 'Lernplan erstellen', description: 'Ziele und Zeit strukturieren' },
+              ].map(({ id, icon: Icon, title, description }) => (
+                <button key={id} onClick={() => void startCreation(id)} className="flex w-full items-start gap-3 rounded-lg px-3 py-3 text-left transition-all hover:bg-white/5">
+                  <Icon size={18} className="mt-0.5 text-cyan-300" />
+                  <span><span className="block text-sm font-medium text-white">{title}</span><span className="mt-0.5 block text-xs text-gray-500">{description}</span></span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -107,13 +152,23 @@ export function LearningWorkspace({ onNavigate }: Props) {
           { id: 'cards', icon: Layers3, title: 'Lernkarten erstellen', text: 'Wichtige Inhalte gezielt wiederholen' },
           { id: 'plan', icon: CalendarDays, title: 'Lernplan erstellen', text: 'Strukturierter Plan für dein Ziel' },
         ].map(({ id, icon: Icon, title, text }) => (
-          <button key={id} onClick={() => setActiveTool(id)} className={`rounded-xl border p-4 text-left transition-all ${activeTool === id ? 'border-cyan-400/40 bg-cyan-500/10' : 'border-white/5 bg-white/[0.02] hover:bg-white/[0.05]'}`}>
+          <button key={id} onClick={() => id === 'assistant' ? setActiveTool(id) : void startCreation(id)} className={`rounded-xl border p-4 text-left transition-all ${activeTool === id ? 'border-cyan-400/40 bg-cyan-500/10' : 'border-white/5 bg-white/[0.02] hover:bg-white/[0.05]'}`}>
             <Icon size={20} className="text-cyan-300" />
             <p className="mt-3 text-sm font-semibold text-white">{title}</p>
             <p className="mt-1 text-xs leading-5 text-gray-500">{text}</p>
           </button>
         ))}
       </div>
+
+      {apiKeyReady !== null && (
+        <div className={`mt-4 flex items-start gap-3 rounded-xl border p-4 ${apiKeyReady ? 'border-emerald-400/20 bg-emerald-500/10' : 'border-amber-400/20 bg-amber-500/10'}`}>
+          {apiKeyReady ? <Sparkles size={18} className="mt-0.5 text-emerald-300" /> : <LockKeyhole size={18} className="mt-0.5 text-amber-300" />}
+          <div>
+            <p className={`text-sm font-medium ${apiKeyReady ? 'text-emerald-200' : 'text-amber-200'}`}>{apiKeyReady ? 'KI bereit' : 'KI-Funktion wartet auf API-Key'}</p>
+            <p className={`mt-1 text-xs ${apiKeyReady ? 'text-emerald-200/70' : 'text-amber-200/70'}`}>{apiKeyMessage}</p>
+          </div>
+        </div>
+      )}
 
       <div className="mt-8 grid gap-5 lg:grid-cols-[1.35fr_0.65fr]">
         <section className="rounded-2xl border border-white/5 bg-white/[0.02] p-5">
