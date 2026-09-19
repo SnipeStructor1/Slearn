@@ -8,7 +8,6 @@ export function Profile({ onNavigate }: { onNavigate?: (page: 'admin') => void }
   const [editing, setEditing] = useState(false);
   const [displayName, setDisplayName] = useState(profile?.display_name || '');
   const [saving, setSaving] = useState(false);
-  const [grantingDevAdmin, setGrantingDevAdmin] = useState(false);
 
   const handleSave = async () => {
     if (!user) return;
@@ -17,14 +16,6 @@ export function Profile({ onNavigate }: { onNavigate?: (page: 'admin') => void }
     await refreshProfile();
     setEditing(false);
     setSaving(false);
-  };
-
-  const handleGrantDevAdmin = async () => {
-    if (!user || !import.meta.env.DEV) return;
-    setGrantingDevAdmin(true);
-    await supabase.from('profiles').update({ role: 'admin' }).eq('id', user.id);
-    await refreshProfile();
-    setGrantingDevAdmin(false);
   };
 
   if (!user) return null;
@@ -134,19 +125,6 @@ export function Profile({ onNavigate }: { onNavigate?: (page: 'admin') => void }
             </div>
           )}
 
-          {import.meta.env.DEV && !isAdmin && (
-            <div className="flex items-center justify-between border-t border-white/5 pt-3 text-sm">
-              <span className="text-gray-500">Developer access</span>
-              <button
-                type="button"
-                disabled={grantingDevAdmin}
-                onClick={handleGrantDevAdmin}
-                className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1.5 text-[11px] font-medium text-gray-300 transition-all hover:border-cyan-400/30 hover:bg-cyan-500/5 hover:text-cyan-300 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {grantingDevAdmin ? 'Updating…' : 'Enable Dev Admin'}
-              </button>
-            </div>
-          )}
         </div>
       </div>
     </div>
