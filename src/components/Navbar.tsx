@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { Compass, LayoutDashboard, Plus, User as UserIcon, Menu, X, LogOut } from 'lucide-react';
+import { Compass, LayoutDashboard, Plus, User as UserIcon, Menu, X, LogOut, Shield } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import { Logo } from './Logo';
 
-type Page = 'home' | 'dashboard' | 'explore' | 'create' | 'study' | 'profile';
+type Page = 'home' | 'dashboard' | 'explore' | 'create' | 'study' | 'profile' | 'admin';
 
 type Props = {
   currentPage: Page;
@@ -12,13 +12,14 @@ type Props = {
 };
 
 export function Navbar({ currentPage, onNavigate, onSignIn }: Props) {
-  const { user, profile, signOut } = useAuth();
+  const { user, profile, signOut, isAdmin } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const navItems: { key: Page; label: string; icon: typeof Compass }[] = [
     { key: 'explore', label: 'Explore', icon: Compass },
     { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { key: 'create', label: 'Create', icon: Plus },
+    ...(user && isAdmin ? [{ key: 'admin', label: 'Admin', icon: Shield }] as { key: Page; label: string; icon: typeof Compass }[] : []),
   ];
 
   const handleNav = (page: Page) => {

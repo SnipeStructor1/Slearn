@@ -8,11 +8,12 @@ import { Explore } from '@/pages/Explore';
 import { CreateSet } from '@/pages/CreateSet';
 import { StudySetView } from '@/pages/StudySetView';
 import { Profile } from '@/pages/Profile';
+import { AdminPage } from '@/pages/AdminPage';
 
-type Page = 'home' | 'dashboard' | 'explore' | 'create' | 'study' | 'profile';
+type Page = 'home' | 'dashboard' | 'explore' | 'create' | 'study' | 'profile' | 'admin';
 
 function AppContent() {
-  const { user, loading } = useAuth();
+  const { user, isAdmin, loading } = useAuth();
   const [page, setPage] = useState<Page>('home');
   const [authOpen, setAuthOpen] = useState(false);
   const [currentSetId, setCurrentSetId] = useState<string | null>(null);
@@ -22,14 +23,21 @@ function AppContent() {
     if (user && page === 'home') {
       setPage('dashboard');
     }
-    if (!user && (page === 'dashboard' || page === 'create' || page === 'profile')) {
+    if (!user && (page === 'dashboard' || page === 'create' || page === 'profile' || page === 'admin')) {
       setPage('home');
     }
-  }, [user, page]);
+    if (user && !isAdmin && page === 'admin') {
+      setPage('dashboard');
+    }
+  }, [user, isAdmin, page]);
 
   const handleNavigate = (target: Page) => {
-    if ((target === 'dashboard' || target === 'create' || target === 'profile' || target === 'study') && !user) {
+    if ((target === 'dashboard' || target === 'create' || target === 'profile' || target === 'study' || target === 'admin') && !user) {
       setAuthOpen(true);
+      return;
+    }
+    if (target === 'admin' && !isAdmin) {
+      setPage('dashboard');
       return;
     }
     setPage(target);
@@ -94,7 +102,8 @@ function AppContent() {
           />
         )}
 
-        {page === 'profile' && user && <Profile />}
+        {page === 'profile' && user && <Profile onNavigate={handleNavigate} />}
+        {page === 'admin' && user && isAdmin && <AdminPage onBack={() => setPage('dashboard')} />}
       </main>
 
       <AuthModal open={authOpen} onClose={() => setAuthOpen(false)} />
