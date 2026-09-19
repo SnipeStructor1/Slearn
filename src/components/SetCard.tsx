@@ -1,4 +1,4 @@
-import { BookOpen, Lock, Globe, Trash2, Save, Check } from 'lucide-react';
+import { BookOpen, Lock, Trash2, Save, Check } from 'lucide-react';
 import type { StudySet } from '@/lib/supabase';
 import { getTheme, getIcon } from '@/lib/themes';
 
@@ -30,15 +30,9 @@ export function SetCard({ set, onClick, onToggleVisibility, onSave, onDelete, sh
           </span>
         </div>
         <div className="flex items-center gap-1.5">
-          {set.visibility === 'private' ? (
-            <span className="flex items-center gap-1 text-xs text-gray-500">
-              <Lock size={12} /> Private
-            </span>
-          ) : (
-            <span className="flex items-center gap-1 text-xs text-gray-500">
-              <Globe size={12} /> Public
-            </span>
-          )}
+          <span className="flex items-center gap-1 text-xs text-gray-500">
+            <Lock size={12} /> Private
+          </span>
         </div>
       </div>
 
@@ -61,15 +55,6 @@ export function SetCard({ set, onClick, onToggleVisibility, onSave, onDelete, sh
         </div>
 
         <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-          {onToggleVisibility && (
-            <button
-              onClick={() => onToggleVisibility(set.id, set.visibility)}
-              className="rounded-lg p-1.5 text-gray-400 hover:bg-white/5 hover:text-white transition-all"
-              title={set.visibility === 'public' ? 'Make private' : 'Make public'}
-            >
-              {set.visibility === 'public' ? <Globe size={15} /> : <Lock size={15} />}
-            </button>
-          )}
           {onSave && (
             <button
               onClick={() => onSave(set.id)}

@@ -12,36 +12,19 @@ type Props = {
 export function Dashboard({ onNavigate, onOpenSet }: Props) {
   const { user, profile, refreshProfile } = useAuth();
   const [mySets, setMySets] = useState<StudySet[]>([]);
-  const [savedSets, setSavedSets] = useState<(StudySet & { is_saved: boolean })[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!user) return;
     (async () => {
-      const [{ data: owned }, { data: saved }] = await Promise.all([
+      const [{ data: owned }] = await Promise.all([
         supabase.from('study_sets').select('*').eq('user_id', user.id).order('created_at', { ascending: false }),
-        supabase
-          .from('saved_sets')
-          .select('set_id, study_sets(*)')
-          .eq('user_id', user.id)
-          .order('created_at', { ascending: false }),
       ]);
 
       setMySets((owned as StudySet[]) || []);
-      setSavedSets(
-        ((saved || [])
-          .map((s: any) => ({ ...(s.study_sets as StudySet), is_saved: true }))
-          .filter((s: StudySet & { is_saved: boolean }) => s && s.id)) as (StudySet & { is_saved: boolean })[]
-      );
       setLoading(false);
     })();
   }, [user]);
-
-  const handleToggleVisibility = async (setId: string, current: 'public' | 'private') => {
-    const next = current === 'public' ? 'private' : 'public';
-    await supabase.from('study_sets').update({ visibility: next }).eq('id', setId);
-    setMySets((prev) => prev.map((s) => (s.id === setId ? { ...s, visibility: next } : s)));
-  };
 
   const handleDelete = async (setId: string) => {
     await supabase.from('study_sets').delete().eq('id', setId);
@@ -71,8 +54,8 @@ export function Dashboard({ onNavigate, onOpenSet }: Props) {
       color: 'from-cyan-400 to-blue-500',
     },
     {
-      label: 'Saved Sets',
-      value: `${savedSets.length}`,
+      label: 'Private Workspace',
+      value: 'On',
       suffix: '',
       icon: BookOpen,
       color: 'from-violet-400 to-purple-500',
@@ -169,7 +152,6 @@ export function Dashboard({ onNavigate, onOpenSet }: Props) {
                 key={set.id}
                 set={set}
                 onClick={() => onOpenSet(set.id)}
-                onToggleVisibility={handleToggleVisibility}
                 onDelete={handleDelete}
               />
             ))}
@@ -177,21 +159,6 @@ export function Dashboard({ onNavigate, onOpenSet }: Props) {
         )}
       </section>
 
-      {/* Saved Sets */}
-      {savedSets.length > 0 && (
-        <section className="mt-10">
-          <h2 className="text-lg font-semibold text-white">Saved from Community</h2>
-          <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {savedSets.map((set) => (
-              <SetCard
-                key={set.id}
-                set={set}
-                onClick={() => onOpenSet(set.id)}
-              />
-            ))}
-          </div>
-        </section>
-      )}
     </div>
   );
 }
