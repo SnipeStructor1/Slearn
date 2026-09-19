@@ -17,7 +17,6 @@ export function Navbar({ currentPage, onNavigate, onSignIn }: Props) {
 
   const navItems: { key: Page; label: string; icon: typeof Compass }[] = [
     { key: 'workspace', label: 'Workspace', icon: Brain },
-    { key: 'explore', label: 'Explore', icon: Compass },
     { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { key: 'create', label: 'Create', icon: Plus },
     ...(user && isAdmin ? [{ key: 'admin', label: 'Admin', icon: Shield }] as { key: Page; label: string; icon: typeof Compass }[] : []),

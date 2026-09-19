@@ -94,7 +94,7 @@ export function CreateSet({ onCreated, onNavigate }: Props) {
           title: generated.title,
           description: generated.description,
           subject: generated.subject,
-          visibility: 'public',
+          visibility: 'private',
           summary: generated.summary,
           source_type: inputMode === 'topic' ? 'topic' : 'text',
           source_content: inputMode === 'topic' ? topic : text,

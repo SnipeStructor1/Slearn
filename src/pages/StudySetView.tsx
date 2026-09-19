@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ArrowLeft, Layers, HelpCircle, MessageSquare, Globe, Lock, Save, Check, Trash2, Palette } from 'lucide-react';
+import { ArrowLeft, Layers, HelpCircle, MessageSquare, Lock, Save, Check, Trash2, Palette } from 'lucide-react';
 import { supabase, type StudySet, type Flashcard } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth-context';
 import { getTheme, getIcon } from '@/lib/themes';
@@ -44,13 +44,6 @@ export function StudySetView({ setId, onBack }: Props) {
       setLoading(false);
     })();
   }, [setId, user]);
-
-  const handleToggleVisibility = async () => {
-    if (!set || !isOwner) return;
-    const next = set.visibility === 'public' ? 'private' : 'public';
-    await supabase.from('study_sets').update({ visibility: next }).eq('id', set.id);
-    setSet({ ...set, visibility: next });
-  };
 
   const handleSave = async () => {
     if (!user || !set) return;
@@ -172,8 +165,8 @@ export function StudySetView({ setId, onBack }: Props) {
                   onClick={handleToggleVisibility}
                   className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-gray-300 hover:bg-white/10 transition-all"
                 >
-                  {set.visibility === 'public' ? <Globe size={15} /> : <Lock size={15} />}
-                  {set.visibility === 'public' ? 'Public' : 'Private'}
+                  <Lock size={15} />
+                  Private
                 </button>
                 <button
                   onClick={handleDelete}
