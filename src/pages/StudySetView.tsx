@@ -142,8 +142,7 @@ export function StudySetView({ setId, onBack }: Props) {
                   {set.subject}
                 </span>
                 <span className="flex items-center gap-1 text-xs text-gray-500">
-                  {set.visibility === 'private' ? <Lock size={12} /> : <Globe size={12} />}
-                  {set.visibility}
+                  <Lock size={12} /> Private
                 </span>
               </div>
               <h1 className="mt-2 text-2xl font-bold text-white">{set.title}</h1>
@@ -160,13 +159,6 @@ export function StudySetView({ setId, onBack }: Props) {
                   title="Customize appearance"
                 >
                   <Palette size={15} /> Customize
-                </button>
-                <button
-                  onClick={handleToggleVisibility}
-                  className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-gray-300 hover:bg-white/10 transition-all"
-                >
-                  <Lock size={15} />
-                  Private
                 </button>
                 <button
                   onClick={handleDelete}
