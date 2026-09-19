@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Compass, LayoutDashboard, Plus, User as UserIcon, Menu, X, LogOut, Shield, Brain } from 'lucide-react';
+import { Compass, User as UserIcon, Menu, X, LogOut, Shield, Brain } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import { Logo } from './Logo';
 
@@ -17,8 +17,6 @@ export function Navbar({ currentPage, onNavigate, onSignIn }: Props) {
 
   const navItems: { key: Page; label: string; icon: typeof Compass }[] = [
     { key: 'workspace', label: 'Workspace', icon: Brain },
-    { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { key: 'create', label: 'Create', icon: Plus },
     ...(user && isAdmin ? [{ key: 'admin', label: 'Admin', icon: Shield }] as { key: Page; label: string; icon: typeof Compass }[] : []),
   ];
 

@@ -1,22 +1,21 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  Bot, FileText, Image, Paperclip, Plus, Send, Sparkles, Upload, X,
+  Bot, FileText, Image, Paperclip, Send, Sparkles, Upload, X, ClipboardCheck, Layers3, CalendarDays, Save,
 } from 'lucide-react';
-
-type WorkspaceFile = {
-  id: string;
-  name: string;
-  size: number;
-  type: string;
-};
+import { useAuth } from '@/lib/auth-context';
+import { supabase, type WorkspaceFile as StoredWorkspaceFile } from '@/lib/supabase';
 
 type Props = {
-  onNavigate: (page: 'create' | 'dashboard') => void;
+  onNavigate: (page: 'workspace') => void;
 };
 
 export function LearningWorkspace({ onNavigate }: Props) {
-  const [notes, setNotes] = useState(() => localStorage.getItem('slearn-workspace-notes') || '');
-  const [files, setFiles] = useState<WorkspaceFile[]>([]);
+  const { user } = useAuth();
+  const [notes, setNotes] = useState('');
+  const [files, setFiles] = useState<StoredWorkspaceFile[]>([]);
+  const [savingNotes, setSavingNotes] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [activeTool, setActiveTool] = useState('assistant');
   const [question, setQuestion] = useState('');
   const [messages, setMessages] = useState<{ role: 'assistant' | 'user'; text: string }[]>([
     { role: 'assistant', text: 'Ich bin bereit. Lade Lernmaterial hoch oder stelle mir eine Frage zu deinen Notizen.' },
@@ -24,18 +23,49 @@ export function LearningWorkspace({ onNavigate }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    localStorage.setItem('slearn-workspace-notes', notes);
-  }, [notes]);
+    if (!user) return;
+    (async () => {
+      const [{ data: note }, { data: storedFiles }] = await Promise.all([
+        supabase.from('workspace_notes').select('content').eq('user_id', user.id).maybeSingle(),
+        supabase.from('workspace_files').select('*').eq('user_id', user.id).order('created_at', { ascending: false }),
+      ]);
+      setNotes(note?.content || '');
+      setFiles((storedFiles as StoredWorkspaceFile[]) || []);
+    })();
+  }, [user]);
 
-  const addFiles = (selected: FileList | null) => {
-    if (!selected) return;
-    const next = Array.from(selected).map((file) => ({
-      id: `${file.name}-${file.lastModified}`,
-      name: file.name,
-      size: file.size,
-      type: file.type,
-    }));
-    setFiles((current) => [...current, ...next.filter((file) => !current.some((item) => item.id === file.id))]);
+  const saveNotes = async () => {
+    if (!user) return;
+    setSavingNotes(true);
+    await supabase.from('workspace_notes').upsert({ user_id: user.id, content: notes, updated_at: new Date().toISOString() });
+    setSavingNotes(false);
+  };
+
+  const addFiles = async (selected: FileList | null) => {
+    if (!selected || !user) return;
+    setUploading(true);
+    const uploaded: StoredWorkspaceFile[] = [];
+    for (const file of Array.from(selected)) {
+      const storagePath = `${user.id}/${crypto.randomUUID()}-${file.name}`;
+      const { error } = await supabase.storage.from('workspace-files').upload(storagePath, file);
+      if (error) continue;
+      const { data } = await supabase.from('workspace_files').insert({
+        user_id: user.id,
+        name: file.name,
+        storage_path: storagePath,
+        mime_type: file.type || 'application/octet-stream',
+        size_bytes: file.size,
+      }).select().single();
+      if (data) uploaded.push(data as StoredWorkspaceFile);
+    }
+    setFiles((current) => [...uploaded, ...current]);
+    setUploading(false);
+  };
+
+  const removeFile = async (file: StoredWorkspaceFile) => {
+    await supabase.storage.from('workspace-files').remove([file.storage_path]);
+    await supabase.from('workspace_files').delete().eq('id', file.id).eq('user_id', user?.id);
+    setFiles((current) => current.filter((item) => item.id !== file.id));
   };
 
   const askAssistant = () => {
@@ -46,8 +76,8 @@ export function LearningWorkspace({ onNavigate }: Props) {
       { role: 'user', text: trimmed },
       {
         role: 'assistant',
-        text: notes.trim()
-          ? `Ich habe deine Frage für den Lernkontext erhalten. Die serverseitige Slearn-KI kann sie später anhand deiner Notizen beantworten: „${trimmed}“`
+        text: notes.trim() || files.length
+          ? `Deine Frage ist im Kontext von ${notes.trim() ? 'deinen Notizen' : 'deinen gespeicherten Materialien'} angekommen. Die Slearn-KI kann sie serverseitig verarbeiten: „${trimmed}“`
           : 'Lade zuerst Notizen oder Lernmaterial hoch, damit die Slearn-KI deine Frage mit Kontext beantworten kann.',
       },
     ]);
@@ -68,12 +98,21 @@ export function LearningWorkspace({ onNavigate }: Props) {
             Strukturieren und Üben.
           </p>
         </div>
-        <button
-          onClick={() => onNavigate('create')}
-          className="flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-cyan-500/20 transition-all hover:brightness-110"
-        >
-          <Plus size={17} /> Lernmaterial verarbeiten
-        </button>
+      </div>
+
+      <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {[
+          { id: 'assistant', icon: Bot, title: 'KI-Lernassistent', text: 'Fragen, Erklärungen und Hausaufgabenhilfe' },
+          { id: 'test', icon: ClipboardCheck, title: 'Test erstellen', text: 'Prüfungen aus deinem Lernkontext generieren' },
+          { id: 'cards', icon: Layers3, title: 'Lernkarten erstellen', text: 'Wichtige Inhalte gezielt wiederholen' },
+          { id: 'plan', icon: CalendarDays, title: 'Lernplan erstellen', text: 'Strukturierter Plan für dein Ziel' },
+        ].map(({ id, icon: Icon, title, text }) => (
+          <button key={id} onClick={() => setActiveTool(id)} className={`rounded-xl border p-4 text-left transition-all ${activeTool === id ? 'border-cyan-400/40 bg-cyan-500/10' : 'border-white/5 bg-white/[0.02] hover:bg-white/[0.05]'}`}>
+            <Icon size={20} className="text-cyan-300" />
+            <p className="mt-3 text-sm font-semibold text-white">{title}</p>
+            <p className="mt-1 text-xs leading-5 text-gray-500">{text}</p>
+          </button>
+        ))}
       </div>
 
       <div className="mt-8 grid gap-5 lg:grid-cols-[1.35fr_0.65fr]">
@@ -92,8 +131,11 @@ export function LearningWorkspace({ onNavigate }: Props) {
             className="mt-4 min-h-72 w-full resize-y rounded-xl border border-white/10 bg-black/20 p-4 text-sm leading-6 text-gray-200 outline-none transition-all placeholder:text-gray-600 focus:border-cyan-400/50 focus:ring-2 focus:ring-cyan-400/10"
           />
           <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs text-gray-500">
-            <span>{notes.length.toLocaleString()} Zeichen · automatisch lokal gespeichert</span>
-            <button onClick={() => setNotes('')} className="text-gray-400 hover:text-white">Notizen leeren</button>
+            <span>{notes.length.toLocaleString()} Zeichen · privat in Slearn gespeichert</span>
+            <div className="flex items-center gap-3">
+              <button onClick={saveNotes} disabled={savingNotes} className="flex items-center gap-1 text-cyan-300 hover:text-cyan-200 disabled:opacity-50"><Save size={13} /> {savingNotes ? 'Speichert ...' : 'Speichern'}</button>
+              <button onClick={() => setNotes('')} className="text-gray-400 hover:text-white">Notizen leeren</button>
+            </div>
           </div>
         </section>
 
@@ -110,7 +152,7 @@ export function LearningWorkspace({ onNavigate }: Props) {
             type="file"
             multiple
             accept=".pdf,.txt,.doc,.docx,.png,.jpg,.jpeg"
-            onChange={(event) => { addFiles(event.target.files); event.target.value = ''; }}
+            onChange={(event) => { void addFiles(event.target.files); event.target.value = ''; }}
             className="hidden"
           />
           <button
@@ -118,16 +160,16 @@ export function LearningWorkspace({ onNavigate }: Props) {
             className="mt-4 flex min-h-32 w-full flex-col items-center justify-center rounded-xl border border-dashed border-white/15 bg-white/[0.02] px-4 text-center transition-all hover:border-cyan-400/40 hover:bg-cyan-500/5"
           >
             <Paperclip size={22} className="text-gray-400" />
-            <span className="mt-2 text-sm font-medium text-gray-300">Dateien auswählen</span>
+            <span className="mt-2 text-sm font-medium text-gray-300">{uploading ? 'Wird sicher gespeichert ...' : 'Dateien auswählen'}</span>
             <span className="mt-1 text-xs text-gray-600">PDF, DOCX, TXT oder Bilder</span>
           </button>
           <div className="mt-4 space-y-2">
             {files.length === 0 && <p className="text-center text-xs text-gray-600">Noch keine Dateien hinzugefügt</p>}
             {files.map((file) => (
               <div key={file.id} className="flex items-center gap-3 rounded-lg bg-white/[0.03] px-3 py-2">
-                {file.type.startsWith('image/') ? <Image size={16} className="text-violet-300" /> : <FileText size={16} className="text-cyan-300" />}
+                {file.mime_type.startsWith('image/') ? <Image size={16} className="text-violet-300" /> : <FileText size={16} className="text-cyan-300" />}
                 <span className="min-w-0 flex-1 truncate text-xs text-gray-300">{file.name}</span>
-                <button onClick={() => setFiles((current) => current.filter((item) => item.id !== file.id))} className="text-gray-600 hover:text-white">
+                <button onClick={() => void removeFile(file)} className="text-gray-600 hover:text-white">
                   <X size={14} />
                 </button>
               </div>

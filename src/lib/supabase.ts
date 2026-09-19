@@ -80,3 +80,13 @@ export type SavedSet = {
   set_id: string;
   created_at: string;
 };
+
+export type WorkspaceFile = {
+  id: string;
+  user_id: string;
+  name: string;
+  storage_path: string;
+  mime_type: string;
+  size_bytes: number;
+  created_at: string;
+};
