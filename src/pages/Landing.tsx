@@ -55,7 +55,7 @@ export function Landing({ onGetStarted, onExplore }: Props) {
             </h1>
 
             <p className="mx-auto mt-6 max-w-2xl text-lg text-gray-400">
-              yLearn turns any topic, text, or notes into structured flashcards and quizzes instantly.
+              Slearn turns any topic, text, or notes into structured flashcards and quizzes instantly.
               Built for middle and high school students who want to learn faster.
             </p>
 
@@ -101,7 +101,7 @@ export function Landing({ onGetStarted, onExplore }: Props) {
         <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-cyan-500/10 to-blue-600/10 p-12 text-center">
           <BookOpen size={48} className="mx-auto text-cyan-400" />
           <h2 className="mt-4 text-3xl font-bold text-white">Ready to ace your next exam?</h2>
-          <p className="mt-2 text-gray-400">Join yLearn and start studying smarter today.</p>
+          <p className="mt-2 text-gray-400">Join Slearn and start studying smarter today.</p>
           <button
             onClick={onGetStarted}
             className="mt-8 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 px-8 py-3.5 text-base font-semibold text-white shadow-lg shadow-cyan-500/25 transition-all hover:brightness-110"

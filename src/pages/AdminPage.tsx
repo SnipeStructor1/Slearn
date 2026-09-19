@@ -64,7 +64,7 @@ export function AdminPage({ onBack }: { onBack: () => void }) {
             </div>
             <div>
               <h1 className="text-lg font-bold text-white">Admin Panel</h1>
-              <p className="text-xs text-gray-500">yLearn Management</p>
+              <p className="text-xs text-gray-500">Slearn Management</p>
             </div>
           </div>
 
