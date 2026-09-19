@@ -1,5 +1,5 @@
 /*
-# yLearn Schema — profiles, study_sets, flashcards, saved_sets
+# Slearn Schema — profiles, study_sets, flashcards, saved_sets
 
 1. New Tables
 - `profiles`: user display info (name, avatar), study streak, total cards learned. One row per auth user.

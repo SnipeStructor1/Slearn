@@ -9,8 +9,9 @@ import { CreateSet } from '@/pages/CreateSet';
 import { StudySetView } from '@/pages/StudySetView';
 import { Profile } from '@/pages/Profile';
 import { AdminPage } from '@/pages/AdminPage';
+import { LearningWorkspace } from '@/pages/LearningWorkspace';
 
-type Page = 'home' | 'dashboard' | 'explore' | 'create' | 'study' | 'profile' | 'admin';
+type Page = 'home' | 'workspace' | 'dashboard' | 'explore' | 'create' | 'study' | 'profile' | 'admin';
 
 function AppContent() {
   const { user, isAdmin, loading } = useAuth();
@@ -21,9 +22,9 @@ function AppContent() {
   // Redirect to dashboard when user signs in
   useEffect(() => {
     if (user && page === 'home') {
-      setPage('dashboard');
+      setPage('workspace');
     }
-    if (!user && (page === 'dashboard' || page === 'create' || page === 'profile' || page === 'admin')) {
+    if (!user && (page === 'workspace' || page === 'dashboard' || page === 'create' || page === 'profile' || page === 'admin')) {
       setPage('home');
     }
     if (user && !isAdmin && page === 'admin') {
@@ -82,6 +83,10 @@ function AppContent() {
             onNavigate={(p) => handleNavigate(p as Page)}
             onOpenSet={handleOpenSet}
           />
+        )}
+
+        {page === 'workspace' && user && (
+          <LearningWorkspace onNavigate={(target) => handleNavigate(target)} />
         )}
 
         {page === 'explore' && (

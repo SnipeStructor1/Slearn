@@ -1,5 +1,5 @@
 /*
-# Seed mock data for yLearn
+# Seed mock data for Slearn
 
 1. Creates a demo user in auth.users so mock study sets have an owner
 2. Creates a profile for the demo user
