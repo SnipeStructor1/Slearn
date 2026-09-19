@@ -51,6 +51,26 @@ export type Profile = {
   study_streak: number;
   last_studied_date: string | null;
   total_cards_learned: number;
+  role: 'user' | 'admin';
+  created_at: string;
+};
+
+export type AppSettings = {
+  id: number;
+  ai_api_key: string;
+  ai_provider: string;
+  ai_key_active: boolean;
+  updated_at: string;
+  updated_by: string | null;
+};
+
+export type AdminAuditLog = {
+  id: string;
+  admin_id: string;
+  action: string;
+  target_id: string | null;
+  target_type: string | null;
+  details: Record<string, unknown>;
   created_at: string;
 };
 
