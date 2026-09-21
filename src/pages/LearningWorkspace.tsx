@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  Bot, FileText, Image, Paperclip, Send, Sparkles, Upload, X, Layers3, Save,
+  AlertTriangle, Bot, Check, FileText, Loader2, Paperclip, Send, Sparkles, Upload, X, Layers3, Save,
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import { getGreetingName } from '@/lib/auth-context';
 import { supabase, type WorkspaceFile as StoredWorkspaceFile } from '@/lib/supabase';
 import { LearningPlanner } from '@/components/LearningPlanner';
-import { homeworkHelp, tutorChat } from '@/lib/ai-client';
+import { analyzeWorkspace, homeworkHelp, tutorChat } from '@/lib/ai-client';
+import type { WorkspaceAnalysis } from '@/lib/types';
 
 type Props = {
   onNavigate: (page: 'create') => void;
@@ -23,6 +24,9 @@ export function LearningWorkspace({ onNavigate }: Props) {
   const [asking, setAsking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
+  const [analysis, setAnalysis] = useState<WorkspaceAnalysis | null>(null);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [confirmingTasks, setConfirmingTasks] = useState(false);
   const [messages, setMessages] = useState<{ role: 'assistant' | 'user'; text: string }[]>([
     { role: 'assistant', text: 'Ich bin bereit. Lade Lernmaterial hoch oder stelle mir eine Frage zu deinen Notizen.' },
   ]);
@@ -31,16 +35,25 @@ export function LearningWorkspace({ onNavigate }: Props) {
   useEffect(() => {
     if (!user) return;
     (async () => {
-      const [noteResult, filesResult] = await Promise.all([
+      const [noteResult, filesResult, analysisResult] = await Promise.all([
         supabase.from('workspace_notes').select('content').eq('user_id', user.id).maybeSingle(),
         supabase.from('workspace_files').select('*').eq('user_id', user.id).order('created_at', { ascending: false }),
+        supabase.from('workspace_analysis').select('*').eq('user_id', user.id).maybeSingle(),
       ]);
-      if (noteResult.error || filesResult.error) {
-        setError(noteResult.error?.message || filesResult.error?.message || 'Workspace konnte nicht geladen werden.');
+      if (noteResult.error || filesResult.error || analysisResult.error) {
+        setError(noteResult.error?.message || filesResult.error?.message || analysisResult.error?.message || 'Workspace konnte nicht geladen werden.');
         return;
       }
       setNotes(noteResult.data?.content || '');
       setFiles((filesResult.data as StoredWorkspaceFile[]) || []);
+      if (analysisResult.data) {
+        setAnalysis({
+          context_summary: analysisResult.data.context_summary,
+          topics: analysisResult.data.topics,
+          tasks: analysisResult.data.pending_tasks,
+          uncertainties: analysisResult.data.uncertainties,
+        });
+      }
     })();
   }, [user]);
 
@@ -59,6 +72,23 @@ export function LearningWorkspace({ onNavigate }: Props) {
     setError(null);
     const uploaded: StoredWorkspaceFile[] = [];
     for (const file of Array.from(selected)) {
+      const isText = ['text/plain', 'text/markdown', 'text/csv', 'application/json'].includes(file.type)
+        || /\.(txt|md|csv|json)$/i.test(file.name);
+      const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+      if ((!isText && !isPdf) || file.size > 10 * 1024 * 1024) {
+        setError(`${file.name}: Nur PDF- oder Textdateien bis 10 MB werden akzeptiert.`);
+        continue;
+      }
+      let extractedText = '';
+      let extractionStatus: StoredWorkspaceFile['extraction_status'] = 'metadata_only';
+      if (isText) {
+        try {
+          extractedText = (await file.text()).slice(0, 10_000);
+          extractionStatus = 'text_extracted';
+        } catch {
+          extractionStatus = 'failed';
+        }
+      }
       const storagePath = `${user.id}/${crypto.randomUUID()}-${file.name}`;
       const { error } = await supabase.storage.from('workspace-files').upload(storagePath, file);
       if (error) {
@@ -71,6 +101,8 @@ export function LearningWorkspace({ onNavigate }: Props) {
         storage_path: storagePath,
         mime_type: file.type || 'application/octet-stream',
         size_bytes: file.size,
+        extracted_text: extractedText,
+        extraction_status: extractionStatus,
       }).select().single();
       if (metadataError) {
         setError(`Datei ${file.name} wurde gespeichert, aber nicht registriert: ${metadataError.message}`);
@@ -80,6 +112,69 @@ export function LearningWorkspace({ onNavigate }: Props) {
     }
     setFiles((current) => [...uploaded, ...current]);
     setUploading(false);
+  };
+
+  const runWorkspaceAnalysis = async () => {
+    if (!user || analyzing) return;
+    setAnalyzing(true);
+    setError(null);
+    const result = await analyzeWorkspace(
+      'Analysiere meinen gesamten LearningWorkspace. Extrahiere nur belastbare Aufgaben und Fristen, gruppiere zusammengehörige Themen und nenne offene Rückfragen.',
+      {
+        notes: notes.trim() || undefined,
+        files: files.map((file) => ({
+          name: file.name,
+          content: file.extracted_text || undefined,
+        })),
+      },
+    );
+    if (!result.success) {
+      setError(`Analyse fehlgeschlagen: ${result.error}`);
+    } else {
+      setAnalysis(result.data);
+      const { error: saveError } = await supabase.from('workspace_analysis').upsert({
+        user_id: user.id,
+        context_summary: result.data.context_summary,
+        topics: result.data.topics,
+        pending_tasks: result.data.tasks,
+        uncertainties: result.data.uncertainties,
+        updated_at: new Date().toISOString(),
+      });
+      if (saveError) setError(`Analyse erstellt, aber nicht gespeichert: ${saveError.message}`);
+    }
+    setAnalyzing(false);
+  };
+
+  const confirmTasks = async () => {
+    if (!user || !analysis?.tasks.length) return;
+    setConfirmingTasks(true);
+    setError(null);
+    const tasksWithDates = analysis.tasks.filter((task) => task.due_date);
+    if (!tasksWithDates.length) {
+      setError('Keine Aufgabe mit sicher erkannter Frist zum Bestätigen vorhanden.');
+      setConfirmingTasks(false);
+      return;
+    }
+    const { error: saveError } = await supabase.from('learning_tasks').insert(tasksWithDates.map((task) => ({
+      user_id: user.id,
+      title: task.title,
+      description: task.description,
+      subject: task.subject || 'Allgemein',
+      task_type: task.task_type,
+      due_date: task.due_date as string,
+      estimated_hours: task.estimated_hours,
+    })));
+    if (saveError) setError(`Bestätigte Aufgaben konnten nicht gespeichert werden: ${saveError.message}`);
+    else {
+      const remainingTasks = analysis.tasks.filter((task) => !tasksWithDates.includes(task));
+      const { error: analysisUpdateError } = await supabase.from('workspace_analysis').update({
+        pending_tasks: remainingTasks,
+        updated_at: new Date().toISOString(),
+      }).eq('user_id', user.id);
+      if (analysisUpdateError) setError(`Aufgaben gespeichert, Analyse konnte nicht aktualisiert werden: ${analysisUpdateError.message}`);
+      setAnalysis((current) => current ? { ...current, tasks: remainingTasks } : current);
+    }
+    setConfirmingTasks(false);
   };
 
   const removeFile = async (file: StoredWorkspaceFile) => {
@@ -180,7 +275,7 @@ export function LearningWorkspace({ onNavigate }: Props) {
           <div className="flex items-center justify-between">
             <div>
               <h2 className="font-semibold text-white">Materialien</h2>
-              <p className="mt-1 text-xs text-gray-500">PDFs, Bilder und Dokumente sammeln</p>
+              <p className="mt-1 text-xs text-gray-500">PDFs und Textdateien sammeln</p>
             </div>
             <Upload size={19} className="text-violet-400" />
           </div>
@@ -188,7 +283,7 @@ export function LearningWorkspace({ onNavigate }: Props) {
             ref={fileInputRef}
             type="file"
             multiple
-            accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/*"
+            accept=".pdf,.txt,.md,.csv,.json,application/pdf,text/plain,text/markdown,text/csv,application/json"
             onChange={(event) => { void addFiles(event.target.files); event.target.value = ''; }}
             className="hidden"
           />
@@ -207,14 +302,14 @@ export function LearningWorkspace({ onNavigate }: Props) {
           >
             <Paperclip size={22} className="text-gray-400" />
             <span className="mt-2 text-sm font-medium text-gray-300">{uploading ? 'Wird sicher gespeichert ...' : 'Dateien auswählen'}</span>
-            <span className="mt-1 text-xs text-gray-600">PDF oder Bilder · klicken oder ziehen</span>
+            <span className="mt-1 text-xs text-gray-600">PDF oder Text · klicken oder ziehen · max. 10 MB</span>
           </button>
           {error && <p className="mt-3 rounded-lg border border-red-400/20 bg-red-500/10 px-3 py-2 text-xs text-red-300">{error}</p>}
           <div className="mt-4 space-y-2">
             {files.length === 0 && <p className="text-center text-xs text-gray-600">Noch keine Dateien hinzugefügt</p>}
             {files.map((file) => (
               <div key={file.id} className="flex items-center gap-3 rounded-lg bg-white/[0.03] px-3 py-2">
-                {file.mime_type.startsWith('image/') ? <Image size={16} className="text-violet-300" /> : <FileText size={16} className="text-cyan-300" />}
+                <FileText size={16} className="text-cyan-300" />
                 <span className="min-w-0 flex-1 truncate text-xs text-gray-300">{file.name}</span>
                 <button onClick={() => void removeFile(file)} className="text-gray-600 hover:text-white">
                   <X size={14} />
@@ -224,6 +319,32 @@ export function LearningWorkspace({ onNavigate }: Props) {
           </div>
         </section>
       </div>
+
+      <section className="mt-5 rounded-2xl border border-violet-400/20 bg-violet-500/[0.05] p-5">
+        <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
+          <div>
+            <h2 className="font-semibold text-white">Workspace analysieren</h2>
+            <p className="mt-1 max-w-2xl text-sm text-gray-400">Die KI startet erst auf Knopfdruck und verwendet Notizen sowie extrahierten Text. PDFs bleiben erhalten; ohne PDF-Parser werden sie als Material-Metadaten markiert.</p>
+          </div>
+          <button onClick={() => void runWorkspaceAnalysis()} disabled={analyzing || (!notes.trim() && files.length === 0)} className="flex items-center justify-center gap-2 rounded-xl bg-violet-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-400 disabled:cursor-not-allowed disabled:opacity-50">
+            {analyzing ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
+            {analyzing ? 'Analysiert ...' : 'Alles analysieren'}
+          </button>
+        </div>
+        {analysis && (
+          <div className="mt-5 space-y-4">
+            <div className="rounded-xl border border-white/10 bg-black/10 p-4">
+              <p className="text-sm leading-6 text-gray-300">{analysis.context_summary}</p>
+              {analysis.topics.length > 0 && <div className="mt-3 flex flex-wrap gap-2">{analysis.topics.map((topic) => <span key={topic.name} className="rounded-full bg-cyan-400/10 px-3 py-1 text-xs text-cyan-200">{topic.name}</span>)}</div>}
+            </div>
+            {analysis.tasks.length > 0 && <div>
+              <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-sm font-semibold text-white">Erkannte Aufgaben zur Bestätigung</h3><button onClick={() => void confirmTasks()} disabled={confirmingTasks} className="flex items-center gap-1 rounded-lg bg-cyan-500 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"><Check size={14} /> {confirmingTasks ? 'Speichert ...' : 'Fristen bestätigen'}</button></div>
+              <div className="mt-2 space-y-2">{analysis.tasks.map((task, index) => <div key={`${task.title}-${index}`} className="rounded-lg border border-white/10 bg-black/10 p-3"><p className="text-sm font-medium text-white">{task.title}</p><p className="mt-1 text-xs text-gray-400">{task.task_type === 'exam' ? 'Prüfung' : 'Aufgabe'} · {task.subject} · {task.due_date ? `Frist ${task.due_date}` : 'Frist offen'} · Sicherheit {Math.round(task.confidence * 100)}%</p></div>)}</div>
+            </div>}
+            {analysis.uncertainties.length > 0 && <div className="rounded-xl border border-amber-400/20 bg-amber-400/5 p-3"><p className="flex items-center gap-2 text-xs font-semibold text-amber-200"><AlertTriangle size={15} /> Offene Rückfragen</p><ul className="mt-2 space-y-1 text-xs text-amber-100/80">{analysis.uncertainties.map((item) => <li key={item}>· {item}</li>)}</ul></div>}
+          </div>
+        )}
+      </section>
 
       <section className="mt-5 rounded-2xl border border-cyan-400/10 bg-gradient-to-br from-cyan-500/[0.07] to-blue-500/[0.03] p-5">
         <div className="flex items-center gap-3">

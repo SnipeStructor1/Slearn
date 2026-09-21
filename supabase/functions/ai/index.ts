@@ -13,6 +13,7 @@ const corsHeaders = {
 // --- Types ---
 
 type AIAction =
+  | "analyze_workspace"
   | "generate_flashcards"
   | "generate_quiz"
   | "generate_study_plan"
@@ -48,6 +49,7 @@ interface RequestBody {
 
 const SUPPORTED_ACTIONS = [
   "generate_flashcards",
+  "analyze_workspace",
   "generate_quiz",
   "generate_study_plan",
   "generate_summary",
@@ -230,6 +232,45 @@ function validateFlashcards(data: unknown): { title: string; description: string
     const card = c as Record<string, unknown>;
     if (typeof card.front !== "string" || typeof card.back !== "string") throw new Error("Invalid card shape");
   }
+
+  function validateWorkspaceAnalysis(data: unknown): {
+    context_summary: string;
+    topics: { name: string; details: string; source_names: string[] }[];
+    tasks: { title: string; description: string; subject: string; task_type: "assignment" | "exam"; due_date: string | null; estimated_hours: number | null; confidence: number }[];
+    uncertainties: string[];
+  } {
+    if (!isRecord(data) || typeof data.context_summary !== "string" || !Array.isArray(data.topics) ||
+        !Array.isArray(data.tasks) || !Array.isArray(data.uncertainties)) {
+      throw new Error("Invalid workspace analysis response");
+    }
+    const topics = data.topics.map((topic) => {
+      if (!isRecord(topic) || typeof topic.name !== "string" || typeof topic.details !== "string" ||
+          !Array.isArray(topic.source_names) || topic.source_names.some((name) => typeof name !== "string")) {
+        throw new Error("Invalid workspace topic");
+      }
+      return { name: topic.name, details: topic.details, source_names: topic.source_names as string[] };
+    });
+    const tasks = data.tasks.map((task) => {
+      if (!isRecord(task) || typeof task.title !== "string" || typeof task.description !== "string" ||
+          typeof task.subject !== "string" || (task.task_type !== "assignment" && task.task_type !== "exam") ||
+          (task.due_date !== null && (typeof task.due_date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(task.due_date))) ||
+          (task.estimated_hours !== null && (typeof task.estimated_hours !== "number" || task.estimated_hours < 0 || task.estimated_hours > 999)) ||
+          typeof task.confidence !== "number" || task.confidence < 0 || task.confidence > 1) {
+        throw new Error("Invalid workspace task");
+      }
+      return {
+        title: task.title,
+        description: task.description,
+        subject: task.subject,
+        task_type: task.task_type,
+        due_date: task.due_date,
+        estimated_hours: task.estimated_hours,
+        confidence: task.confidence,
+      };
+    });
+    if (data.uncertainties.some((item) => typeof item !== "string")) throw new Error("Invalid workspace uncertainties");
+    return { context_summary: data.context_summary, topics, tasks, uncertainties: data.uncertainties as string[] };
+  }
   return {
     title: d.title,
     description: d.description,
@@ -296,6 +337,8 @@ function validateTutorResponse(data: unknown): { reply: string; suggestions?: st
 function buildSystemPrompt(action: AIAction): string {
   const base = "You are Slearn's AI learning assistant. You help students study effectively. All responses must be valid JSON. Do not include markdown code fences or any text outside the JSON object.";
   switch (action) {
+    case "analyze_workspace":
+      return `${base} Analyze all provided notes and uploaded material. Never invent a date: use null when a deadline is not reliably stated and add a concrete question to uncertainties. Group related material into topics and produce a compact context summary. Respond with: {"context_summary": string, "topics": [{"name": string, "details": string, "source_names": string[]}], "tasks": [{"title": string, "description": string, "subject": string, "task_type": "assignment"|"exam", "due_date": "YYYY-MM-DD"|null, "estimated_hours": number|null, "confidence": number}], "uncertainties": string[]}`;
     case "generate_flashcards":
       return `${base} Create high-quality flashcards from the given input. Each card should have a clear question on the front and a concise but complete answer on the back. Respond with: {"title": string, "description": string, "subject": string, "summary": string[], "cards": [{"front": string, "back": string}]}`;
     case "generate_quiz":
@@ -449,6 +492,7 @@ Deno.serve(async (req: Request) => {
     let validated: unknown;
     try {
       switch (body.action) {
+        case "analyze_workspace": validated = validateWorkspaceAnalysis(parsed); break;
         case "generate_flashcards": validated = validateFlashcards(parsed); break;
         case "generate_quiz": validated = validateQuiz(parsed); break;
         case "generate_study_plan": validated = validateStudyPlan(parsed); break;

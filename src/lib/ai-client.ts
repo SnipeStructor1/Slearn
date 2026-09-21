@@ -1,7 +1,7 @@
 import { supabase } from '@/lib/supabase';
 import type {
   AIAction, AIContext, AIOptions, AIResult,
-  GeneratedSet, GeneratedQuiz, GeneratedStudyPlan, GeneratedSummary, TutorResponse,
+  GeneratedSet, GeneratedQuiz, GeneratedStudyPlan, GeneratedSummary, TutorResponse, WorkspaceAnalysis,
 } from '@/lib/types';
 
 async function callAI<T>(action: AIAction, input: string, context?: AIContext, options?: AIOptions): Promise<AIResult<T>> {
@@ -29,6 +29,10 @@ async function callAI<T>(action: AIAction, input: string, context?: AIContext, o
 
 export function generateFlashcards(input: string, context?: AIContext, cardCount?: number) {
   return callAI<GeneratedSet>('generate_flashcards', input, context, { card_count: cardCount });
+}
+
+export function analyzeWorkspace(input: string, context?: AIContext) {
+  return callAI<WorkspaceAnalysis>('analyze_workspace', input, context);
 }
 
 export function generateQuiz(input: string, context?: AIContext, questionCount?: number) {
