@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Flame, TrendingUp, Library, BookOpen, Edit2, Check, X } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import { supabase } from '@/lib/supabase';
@@ -8,6 +8,10 @@ export function Profile({ onNavigate }: { onNavigate?: (page: 'admin') => void }
   const [editing, setEditing] = useState(false);
   const [displayName, setDisplayName] = useState(profile?.display_name || '');
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setDisplayName(profile?.display_name || '');
+  }, [profile?.display_name]);
 
   const handleSave = async () => {
     if (!user) return;

@@ -90,3 +90,17 @@ export type WorkspaceFile = {
   size_bytes: number;
   created_at: string;
 };
+
+export type LearningTask = {
+  id: string;
+  user_id: string;
+  title: string;
+  description: string;
+  subject: string;
+  task_type: 'assignment' | 'exam';
+  due_date: string;
+  estimated_hours: number | null;
+  completed: boolean;
+  created_at: string;
+  updated_at: string;
+};

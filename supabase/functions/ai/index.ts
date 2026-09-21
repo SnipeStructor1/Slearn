@@ -32,6 +32,15 @@ interface RequestBody {
     files?: { name: string; content?: string }[];
     flashcards?: { front: string; back: string }[];
     conversation?: { role: "user" | "assistant"; content: string }[];
+    tasks?: {
+      id: string;
+      title: string;
+      description: string;
+      subject: string;
+      task_type: "assignment" | "exam";
+      due_date: string;
+      estimated_hours: number | null;
+    }[];
   };
   options?: {
     card_count?: number;
@@ -61,6 +70,8 @@ const MAX_FLASHCARD_FIELD_LENGTH = 4_000;
 const MAX_CONVERSATION_MESSAGES = 50;
 const MAX_MESSAGE_CONTENT_LENGTH = 8_000;
 const MAX_GOAL_LENGTH = 2_000;
+const MAX_TASKS = 100;
+const MAX_TASK_FIELD_LENGTH = 2_000;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -142,6 +153,32 @@ function validateRequestBody(value: unknown): RequestBody {
         };
       });
     }
+
+    if (rawContext.tasks !== undefined) {
+      if (!Array.isArray(rawContext.tasks) || rawContext.tasks.length > MAX_TASKS) {
+        throw new Error(`context.tasks must contain at most ${MAX_TASKS} tasks`);
+      }
+      context.tasks = rawContext.tasks.map((task, index) => {
+        if (!isRecord(task)) throw new Error(`context.tasks[${index}] must be an object`);
+        if (task.task_type !== "assignment" && task.task_type !== "exam") {
+          throw new Error(`context.tasks[${index}].task_type is invalid`);
+        }
+        const estimatedHours = task.estimated_hours;
+        if (estimatedHours !== null && estimatedHours !== undefined &&
+            (typeof estimatedHours !== "number" || !Number.isFinite(estimatedHours) || estimatedHours < 0 || estimatedHours > 999)) {
+          throw new Error(`context.tasks[${index}].estimated_hours is invalid`);
+        }
+        return {
+          id: requireString(task.id, `context.tasks[${index}].id`, 100),
+          title: requireString(task.title, `context.tasks[${index}].title`, MAX_TASK_FIELD_LENGTH),
+          description: typeof task.description === "string" ? task.description.slice(0, MAX_TASK_FIELD_LENGTH) : "",
+          subject: requireString(task.subject, `context.tasks[${index}].subject`, 200),
+          task_type: task.task_type,
+          due_date: requireString(task.due_date, `context.tasks[${index}].due_date`, 30),
+          estimated_hours: estimatedHours ?? null,
+        };
+      });
+    }
   }
 
   let options: RequestBody["options"];
@@ -203,7 +240,7 @@ function validateQuiz(data: unknown): { title: string; questions: { question: st
   return d as any;
 }
 
-function validateStudyPlan(data: unknown): { title: string; goal: string; units: { title: string; description: string; topics: string[]; estimated_hours: number }[] } {
+function validateStudyPlan(data: unknown): { title: string; goal: string; units: { title: string; description: string; topics: string[]; estimated_hours: number; scheduled_date?: string; task_ids?: string[] }[] } {
   if (typeof data !== "object" || data === null) throw new Error("Invalid study plan response");
   const d = data as Record<string, unknown>;
   if (typeof d.title !== "string") throw new Error("Missing plan title");
@@ -215,6 +252,12 @@ function validateStudyPlan(data: unknown): { title: string; goal: string; units:
     if (typeof uObj.description !== "string") throw new Error("Invalid unit description");
     if (!Array.isArray(uObj.topics)) throw new Error("Invalid unit topics");
     if (typeof uObj.estimated_hours !== "number") throw new Error("Invalid estimated_hours");
+    if (uObj.scheduled_date !== undefined && (typeof uObj.scheduled_date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(uObj.scheduled_date))) {
+      throw new Error("Invalid scheduled_date");
+    }
+    if (uObj.task_ids !== undefined && (!Array.isArray(uObj.task_ids) || uObj.task_ids.some((id) => typeof id !== "string"))) {
+      throw new Error("Invalid task_ids");
+    }
   }
   return d as any;
 }
@@ -244,7 +287,7 @@ function buildSystemPrompt(action: AIAction): string {
     case "generate_quiz":
       return `${base} Create a quiz from the given context. Each question should have 4 options, one correct answer, and an explanation. Respond with: {"title": string, "questions": [{"question": string, "options": string[], "correct_index": number, "explanation": string}]}`;
     case "generate_study_plan":
-      return `${base} Create a structured study plan. Break it into units with topics and estimated hours. Respond with: {"title": string, "goal": string, "units": [{"title": string, "description": string, "topics": string[], "estimated_hours": number}]}`;
+      return `${base} Create a detailed, date-based study plan from the student's open assignments and exams. Schedule preparation sessions on dates before each due date, prioritize exams and nearer deadlines, and include the source task ids. Respond with: {"title": string, "goal": string, "units": [{"title": string, "description": string, "topics": string[], "estimated_hours": number, "scheduled_date": "YYYY-MM-DD", "task_ids": string[]}]}`;
     case "generate_summary":
       return `${base} Summarize the given material. Respond with: {"summary": string[], "key_points": string[]}`;
     case "tutor_chat":
@@ -269,6 +312,9 @@ function buildUserPrompt(body: RequestBody): string {
   }
   if (body.context?.conversation && body.context.conversation.length > 0) {
     prompt += `\nConversation so far:\n${body.context.conversation.map((m) => `${m.role}: ${m.content}`).join("\n")}\n`;
+  }
+  if (body.context?.tasks && body.context.tasks.length > 0) {
+    prompt += `\nOpen learning tasks and exams (use these exact ids and due dates):\n${JSON.stringify(body.context.tasks)}\n`;
   }
   if (body.options) {
     const parts: string[] = [];
