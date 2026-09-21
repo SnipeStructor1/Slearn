@@ -14,6 +14,7 @@ export type GeneratedSet = {
 };
 
 export type AIAction =
+  | 'analyze_workspace'
   | 'generate_flashcards'
   | 'generate_quiz'
   | 'generate_study_plan'
@@ -51,6 +52,21 @@ export type GeneratedStudyPlan = {
 export type GeneratedSummary = {
   summary: string[];
   key_points: string[];
+};
+
+export type WorkspaceAnalysis = {
+  context_summary: string;
+  topics: { name: string; details: string; source_names: string[] }[];
+  tasks: {
+    title: string;
+    description: string;
+    subject: string;
+    task_type: 'assignment' | 'exam';
+    due_date: string | null;
+    estimated_hours: number | null;
+    confidence: number;
+  }[];
+  uncertainties: string[];
 };
 
 export type TutorResponse = {

@@ -89,7 +89,28 @@ export type WorkspaceFile = {
   storage_path: string;
   mime_type: string;
   size_bytes: number;
+  extracted_text: string;
+  extraction_status: 'text_extracted' | 'metadata_only' | 'failed';
   created_at: string;
+};
+
+export type WorkspaceAnalysisRecord = {
+  user_id: string;
+  context_summary: string;
+  topics: { name: string; details: string; source_names: string[] }[];
+  pending_tasks: LearningTaskDraft[];
+  uncertainties: string[];
+  updated_at: string;
+};
+
+export type LearningTaskDraft = {
+  title: string;
+  description: string;
+  subject: string;
+  task_type: 'assignment' | 'exam';
+  due_date: string | null;
+  estimated_hours: number | null;
+  confidence: number;
 };
 
 export type LearningTask = {
