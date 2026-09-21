@@ -106,3 +106,9 @@ export function useAuth() {
   if (!ctx) throw new Error('useAuth must be used within AuthProvider');
   return ctx;
 }
+
+export function getGreetingName(profile: Profile | null, user: User | null) {
+  const displayName = profile?.display_name?.trim();
+  if (displayName) return displayName;
+  return user?.email?.split('@')[0] || 'Lernende:r';
+}

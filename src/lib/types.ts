@@ -38,6 +38,8 @@ export type StudyPlanUnit = {
   description: string;
   topics: string[];
   estimated_hours: number;
+  scheduled_date?: string;
+  task_ids?: string[];
 };
 
 export type GeneratedStudyPlan = {
@@ -61,6 +63,15 @@ export type AIContext = {
   files?: { name: string; content?: string }[];
   flashcards?: { front: string; back: string }[];
   conversation?: { role: 'user' | 'assistant'; content: string }[];
+  tasks?: {
+    id: string;
+    title: string;
+    description: string;
+    subject: string;
+    task_type: 'assignment' | 'exam';
+    due_date: string;
+    estimated_hours: number | null;
+  }[];
 };
 
 export type AIOptions = {

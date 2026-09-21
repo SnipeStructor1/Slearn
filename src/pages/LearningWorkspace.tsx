@@ -3,14 +3,16 @@ import {
   Bot, FileText, Image, Paperclip, Send, Sparkles, Upload, X, Layers3, Save,
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
+import { getGreetingName } from '@/lib/auth-context';
 import { supabase, type WorkspaceFile as StoredWorkspaceFile } from '@/lib/supabase';
+import { LearningPlanner } from '@/components/LearningPlanner';
 
 type Props = {
   onNavigate: (page: 'create') => void;
 };
 
 export function LearningWorkspace({ onNavigate }: Props) {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [notes, setNotes] = useState('');
   const [files, setFiles] = useState<StoredWorkspaceFile[]>([]);
   const [savingNotes, setSavingNotes] = useState(false);
@@ -93,6 +95,7 @@ export function LearningWorkspace({ onNavigate }: Props) {
             <span className="text-xs font-semibold uppercase tracking-[0.18em]">Slearn Workspace</span>
           </div>
           <h1 className="mt-2 text-3xl font-bold text-white">Dein Lernraum für alles</h1>
+          <p className="mt-3 text-lg font-medium text-cyan-200">Hey, {getGreetingName(profile, user)}</p>
           <p className="mt-2 max-w-2xl text-sm text-gray-400">
             Sammle Notizen, Dokumente und Aufgaben an einem Ort. Die KI hilft dir später beim Verstehen,
             Strukturieren und Üben.
@@ -214,6 +217,8 @@ export function LearningWorkspace({ onNavigate }: Props) {
           </button>
         </div>
       </section>
+
+      <LearningPlanner />
     </div>
   );
 }
