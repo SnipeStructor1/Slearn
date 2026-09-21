@@ -10,10 +10,6 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
 };
 
-if (req.method === "OPTIONS") {
-  return new Response(null, { status: 200, headers: corsHeaders });
-}
-
 // --- Types ---
 
 type AIAction =

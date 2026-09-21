@@ -1,6 +1,7 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Check, X, RotateCcw, Trophy, MessageSquare, Loader2 } from 'lucide-react';
 import type { Flashcard } from '@/lib/supabase';
+import { generateQuiz as generateAIQuiz } from '@/lib/ai-client';
 
 type Props = {
   cards: Flashcard[];
@@ -26,7 +27,7 @@ function shuffle<T>(arr: T[]): T[] {
   return a;
 }
 
-function generateQuiz(cards: Flashcard[]): Question[] {
+function generateLocalQuiz(cards: Flashcard[]): Question[] {
   if (cards.length < 2) return [];
 
   const questions: Question[] = [];
@@ -80,7 +81,7 @@ function generateQuiz(cards: Flashcard[]): Question[] {
 }
 
 export function QuizMode({ cards, onAskTutor }: Props) {
-  const questions = useMemo(() => generateQuiz(cards), [cards]);
+  const [questions, setQuestions] = useState<Question[]>([]);
   const [current, setCurrent] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
   const [textAnswer, setTextAnswer] = useState('');
@@ -90,9 +91,29 @@ export function QuizMode({ cards, onAskTutor }: Props) {
   const [generating, setGenerating] = useState(true);
 
   useEffect(() => {
-    const timer = setTimeout(() => setGenerating(false), 800);
-    return () => clearTimeout(timer);
-  }, []);
+    let cancelled = false;
+    void (async () => {
+      const result = await generateAIQuiz(
+        'Erstelle einen Quiz zu diesen Lernkarten.',
+        { flashcards: cards.map(({ front, back }) => ({ front, back })) },
+        Math.min(cards.length, 20),
+      );
+      if (cancelled) return;
+      if (result.success) {
+        setQuestions(result.data.questions.map((question, index) => ({
+          type: 'multiple-choice',
+          card: cards[index % cards.length],
+          prompt: question.question,
+          options: question.options,
+          correctAnswer: question.options[question.correct_index] || question.options[0],
+        })));
+      } else {
+        setQuestions(generateLocalQuiz(cards));
+      }
+      setGenerating(false);
+    })();
+    return () => { cancelled = true; };
+  }, [cards]);
 
   if (generating) {
     return (

@@ -28,7 +28,7 @@ export function Navbar({ currentPage, onNavigate, onSignIn }: Props) {
   return (
     <nav className="sticky top-0 z-40 border-b border-white/5 bg-[#0a0a0f]/80 backdrop-blur-xl">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
-        <button onClick={() => handleNav(user ? 'dashboard' : 'home')} className="flex-shrink-0">
+        <button onClick={() => handleNav(user ? 'workspace' : 'home')} className="flex-shrink-0">
           <Logo />
         </button>
 
