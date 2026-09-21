@@ -14,8 +14,8 @@ export function Logo({ size = 'md' }: { size?: 'sm' | 'md' | 'lg' }) {
         <GraduationCap size={s.icon} className="text-white" />
       </div>
       <span className={`font-bold tracking-tight ${s.text}`}>
-        <span className="text-white">y</span>
-        <span className="bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">Learn</span>
+        <span className="text-white">S</span>
+        <span className="bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">learn</span>
       </span>
     </div>
   );
