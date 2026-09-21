@@ -934,7 +934,7 @@ function AdminSettingsPanel() {
             className="mt-2 w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white placeholder-gray-500 outline-none focus:border-cyan-400/50"
           />
           {provider === 'openrouter' && (
-            <p className="mt-2 text-xs text-gray-500">Free presets are labeled FREE. OpenRouter model IDs can be entered manually as models change.</p>
+            <p className="mt-2 text-xs text-gray-500">Free presets are labeled FREE. OpenRouter model IDs change over time, so you can enter any current ID manually.</p>
           )}
         </div>
 

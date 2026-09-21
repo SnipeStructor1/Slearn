@@ -22,16 +22,14 @@ export const AI_MODEL_PRESETS: Record<AIProvider, AIModelPreset[]> = {
     { id: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash' },
   ],
   openrouter: [
-    { id: 'google/gemini-2.0-flash-exp:free', label: 'Gemini 2.0 Flash Experimental', free: true },
-    { id: 'meta-llama/llama-3.3-8b-instruct:free', label: 'Llama 3.3 8B Instruct', free: true },
-    { id: 'qwen/qwen3-4b:free', label: 'Qwen3 4B', free: true },
+    { id: 'openai/gpt-oss-20b:free', label: 'GPT-OSS 20B', free: true },
   ],
 };
 
 export const AI_DEFAULT_MODELS: Record<AIProvider, string> = {
   openai: 'gpt-4o-mini',
   gemini: 'gemini-1.5-flash',
-  openrouter: 'google/gemini-2.0-flash-exp:free',
+  openrouter: 'openai/gpt-oss-20b:free',
 };
 
 export function isAIProvider(value: string): value is AIProvider {
