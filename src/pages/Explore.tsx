@@ -16,6 +16,7 @@ export function Explore({ onOpenSet }: Props) {
   const [search, setSearch] = useState('');
   const [activeSubject, setActiveSubject] = useState('All');
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -46,8 +47,18 @@ export function Explore({ onOpenSet }: Props) {
 
   const handleSave = async (setId: string) => {
     if (!user) return;
+    setError(null);
     if (savedIds.has(setId)) {
-      await supabase.from('saved_sets').delete().eq('set_id', setId).eq('user_id', user.id);
+      const { error: deleteError } = await supabase
+        .from('saved_sets')
+        .delete()
+        .eq('set_id', setId)
+        .eq('user_id', user.id);
+      if (deleteError) {
+        setError('Failed to remove saved set. Please try again.');
+        return;
+      }
+
       setSavedIds((prev) => {
         const next = new Set(prev);
         next.delete(setId);
@@ -55,7 +66,14 @@ export function Explore({ onOpenSet }: Props) {
       });
       setSets((prev) => prev.map((s) => (s.id === setId ? { ...s, is_saved: false } : s)));
     } else {
-      await supabase.from('saved_sets').insert({ set_id: setId, user_id: user.id });
+      const { error: insertError } = await supabase
+        .from('saved_sets')
+        .insert({ set_id: setId, user_id: user.id });
+      if (insertError) {
+        setError('Failed to save study set. Please try again.');
+        return;
+      }
+
       setSavedIds((prev) => new Set(prev).add(setId));
       setSets((prev) => prev.map((s) => (s.id === setId ? { ...s, is_saved: true } : s)));
     }
@@ -91,6 +109,12 @@ export function Explore({ onOpenSet }: Props) {
           />
         </div>
       </div>
+
+      {error && (
+        <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+          {error}
+        </div>
+      )}
 
       {/* Subject filter */}
       <div className="mt-4 flex flex-wrap gap-2">

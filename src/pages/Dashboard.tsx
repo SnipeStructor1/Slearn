@@ -13,6 +13,7 @@ export function Dashboard({ onNavigate, onOpenSet }: Props) {
   const { user, profile, refreshProfile } = useAuth();
   const [mySets, setMySets] = useState<StudySet[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -27,7 +28,13 @@ export function Dashboard({ onNavigate, onOpenSet }: Props) {
   }, [user]);
 
   const handleDelete = async (setId: string) => {
-    await supabase.from('study_sets').delete().eq('id', setId);
+    setError(null);
+    const { error: deleteError } = await supabase.from('study_sets').delete().eq('id', setId);
+    if (deleteError) {
+      setError('Failed to delete study set. Please try again.');
+      return;
+    }
+
     setMySets((prev) => prev.filter((s) => s.id !== setId));
   };
 
@@ -132,6 +139,11 @@ export function Dashboard({ onNavigate, onOpenSet }: Props) {
             </button>
           )}
         </div>
+        {error && (
+          <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+            {error}
+          </div>
+        )}
 
         {mySets.length === 0 ? (
           <div className="mt-4 rounded-2xl border border-dashed border-white/10 bg-white/[0.01] p-12 text-center">
