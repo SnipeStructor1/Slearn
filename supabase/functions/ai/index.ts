@@ -72,6 +72,13 @@ const MAX_MESSAGE_CONTENT_LENGTH = 8_000;
 const MAX_GOAL_LENGTH = 2_000;
 const MAX_TASKS = 100;
 const MAX_TASK_FIELD_LENGTH = 2_000;
+const AI_DEFAULT_MODELS = {
+  openai: "gpt-4o-mini",
+  gemini: "gemini-1.5-flash",
+  openrouter: "google/gemini-2.0-flash-exp:free",
+} as const;
+const AI_PROVIDERS = ["openai", "gemini", "openrouter"] as const;
+type AIProvider = typeof AI_PROVIDERS[number];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -401,7 +408,16 @@ Deno.serve(async (req: Request) => {
     const systemPrompt = buildSystemPrompt(body.action);
     const userPrompt = buildUserPrompt(body);
 
-    const aiResponse = await callAI(settings.ai_provider, settings.ai_api_key, settings.ai_model, systemPrompt, userPrompt);
+    let provider: AIProvider;
+    let model: string;
+    try {
+      provider = validateProvider(settings.ai_provider);
+      model = validateModel(provider, settings.ai_model);
+    } catch (error) {
+      return jsonError(`Invalid AI settings: ${(error as Error).message}`, 503);
+    }
+
+    const aiResponse = await callAI(provider, settings.ai_api_key, model, systemPrompt, userPrompt);
     const rawText = aiResponse.text;
     const tokensUsed = aiResponse.tokens;
 
@@ -465,64 +481,71 @@ Deno.serve(async (req: Request) => {
 
 async function callAI(provider: string, apiKey: string, model: string, systemPrompt: string, userPrompt: string): Promise<{ text: string; tokens: number }> {
   if (provider === "openai") {
-    return callOpenAI(apiKey, model || "gpt-4o-mini", systemPrompt, userPrompt);
+    return callOpenAI(apiKey, model, systemPrompt, userPrompt);
   } else if (provider === "gemini") {
-    return callGemini(apiKey, model || "gemini-1.5-flash", systemPrompt, userPrompt);
+    return callGemini(apiKey, model, systemPrompt, userPrompt);
+  } else if (provider === "openrouter") {
+    return callOpenRouter(apiKey, model, systemPrompt, userPrompt);
   }
   throw new Error(`Unsupported AI provider: ${provider}`);
+}
+
+function validateProvider(value: unknown): AIProvider {
+  if (typeof value !== "string" || !(AI_PROVIDERS as readonly string[]).includes(value)) {
+    throw new Error(`provider must be one of: ${AI_PROVIDERS.join(", ")}`);
+  }
+  return value as AIProvider;
+}
+
+function validateModel(provider: AIProvider, value: unknown): string {
+  if (value === null || value === undefined || value === "") return AI_DEFAULT_MODELS[provider];
+  if (typeof value !== "string" || value.length > 200 || !/^[A-Za-z0-9._:/-]+$/.test(value)) {
+    throw new Error(`model is invalid for ${provider}; use a provider/model ID without spaces`);
+  }
+  return value;
 }
 
 async function callOpenAI(apiKey: string, model: string, systemPrompt: string, userPrompt: string): Promise<{ text: string; tokens: number }> {
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
-      temperature: 0.7,
-      max_tokens: 4000,
-    }),
+    headers: { "Content-Type": "application/json", "Authorization": "Bearer " + apiKey },
+    body: JSON.stringify({ model, messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }], temperature: 0.7, max_tokens: 4000 }),
   });
-
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`OpenAI API error (${res.status}): ${errText}`);
-  }
-
+  if (!res.ok) throw new Error(`OpenAI API error (${res.status})`);
   const data = await res.json();
   const text = data.choices?.[0]?.message?.content || "";
-  const tokens = data.usage?.total_tokens || 0;
-  return { text, tokens };
+  return { text, tokens: data.usage?.total_tokens || 0 };
 }
 
 async function callGemini(apiKey: string, model: string, systemPrompt: string, userPrompt: string): Promise<{ text: string; tokens: number }> {
   const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      system_instruction: { parts: [{ text: systemPrompt }] },
-      contents: [{ role: "user", parts: [{ text: userPrompt }] }],
-      generationConfig: { temperature: 0.7, maxOutputTokens: 4000 },
-    }),
+    body: JSON.stringify({ system_instruction: { parts: [{ text: systemPrompt }] }, contents: [{ role: "user", parts: [{ text: userPrompt }] }], generationConfig: { temperature: 0.7, maxOutputTokens: 4000 } }),
   });
-
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`Gemini API error (${res.status}): ${errText}`);
-  }
-
+  if (!res.ok) throw new Error(`Gemini API error (${res.status})`);
   const data = await res.json();
   const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-  const tokens = data.usageMetadata?.totalTokenCount || 0;
-  return { text, tokens };
+  return { text, tokens: data.usageMetadata?.totalTokenCount || 0 };
 }
 
+async function callOpenRouter(apiKey: string, model: string, systemPrompt: string, userPrompt: string): Promise<{ text: string; tokens: number }> {
+  const headers: Record<string, string> = { "Content-Type": "application/json", "Authorization": "Bearer " + apiKey };
+  const referer = Deno.env.get("OPENROUTER_HTTP_REFERER");
+  const title = Deno.env.get("OPENROUTER_X_TITLE");
+  if (referer) headers["HTTP-Referer"] = referer;
+  if (title) headers["X-Title"] = title;
+  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ model, messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }], temperature: 0.7, max_tokens: 4000 }),
+  });
+  if (!res.ok) throw new Error(`OpenRouter API error (${res.status})`);
+  const data = await res.json();
+  const text = data.choices?.[0]?.message?.content;
+  if (typeof text !== "string" || !text) throw new Error("OpenRouter returned no message content");
+  return { text, tokens: data.usage?.total_tokens || 0 };
+}
 function jsonError(message: string, status: number): Response {
   return new Response(
     JSON.stringify({ success: false, error: message }),

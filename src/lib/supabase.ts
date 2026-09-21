@@ -58,7 +58,8 @@ export type Profile = {
 export type AppSettings = {
   id: number;
   ai_api_key: string;
-  ai_provider: string;
+  ai_provider: 'openai' | 'gemini' | 'openrouter' | 'none';
+  ai_model: string;
   ai_key_active: boolean;
   updated_at: string;
   updated_by: string | null;
