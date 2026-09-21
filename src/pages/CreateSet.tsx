@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Sparkles, FileText, ImageIcon, Loader2, ArrowLeft, ArrowRight, Check, RefreshCw, Palette } from 'lucide-react';
-import { generateStudySet } from '@/lib/ai-generator';
+import { generateFlashcards } from '@/lib/ai-client';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth-context';
 import { subjects } from '@/lib/mock-data';
@@ -62,18 +62,22 @@ export function CreateSet({ onCreated, onNavigate }: Props) {
         return;
       }
 
-      await new Promise((r) => setTimeout(r, 1200));
-
-      const result = generateStudySet(input, sourceType);
+      const result = await generateFlashcards(input, undefined, 20);
+      if (!result.success) {
+        setError(result.error);
+        setLoading(false);
+        return;
+      }
+      const generatedSet = result.data;
       if (subject !== 'General') {
-        result.subject = subject;
+        generatedSet.subject = subject;
       }
       // Apply subject-based defaults for color/icon
-      const defaults = subjectDefaults[result.subject] || subjectDefaults['General'];
+      const defaults = subjectDefaults[generatedSet.subject] || subjectDefaults['General'];
       setColorTheme(defaults.color);
       setIconName(defaults.icon);
 
-      setGenerated(result);
+      setGenerated(generatedSet);
       setStep('preview');
     } catch {
       setError('Failed to generate study set. Please try again.');

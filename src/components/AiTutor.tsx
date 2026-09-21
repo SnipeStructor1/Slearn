@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { X, Send, Sparkles, Loader2, Lightbulb } from 'lucide-react';
+import { homeworkHelp, tutorChat } from '@/lib/ai-client';
 
 type Message = {
   role: 'user' | 'assistant';
@@ -93,9 +94,11 @@ export function AiTutor({ open, onClose, cardContext }: Props) {
     setInput('');
     setThinking(true);
 
-    await new Promise((r) => setTimeout(r, 800));
-
-    const response = generateResponse(userMsg.content, cardContext);
+    const context = cardContext ? { flashcards: [cardContext] } : undefined;
+    const result = /homework|hausaufgabe|aufgabe/i.test(userMsg.content)
+      ? await homeworkHelp(userMsg.content, context)
+      : await tutorChat(userMsg.content, context);
+    const response = result.success ? result.data.reply : generateResponse(userMsg.content, cardContext);
     setMessages((prev) => [...prev, { role: 'assistant', content: response }]);
     setThinking(false);
   };

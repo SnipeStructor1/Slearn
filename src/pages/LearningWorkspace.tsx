@@ -6,6 +6,7 @@ import { useAuth } from '@/lib/auth-context';
 import { getGreetingName } from '@/lib/auth-context';
 import { supabase, type WorkspaceFile as StoredWorkspaceFile } from '@/lib/supabase';
 import { LearningPlanner } from '@/components/LearningPlanner';
+import { homeworkHelp, tutorChat } from '@/lib/ai-client';
 
 type Props = {
   onNavigate: (page: 'create') => void;
@@ -19,6 +20,7 @@ export function LearningWorkspace({ onNavigate }: Props) {
   const [uploading, setUploading] = useState(false);
   const [activeTool, setActiveTool] = useState('assistant');
   const [question, setQuestion] = useState('');
+  const [asking, setAsking] = useState(false);
   const [messages, setMessages] = useState<{ role: 'assistant' | 'user'; text: string }[]>([
     { role: 'assistant', text: 'Ich bin bereit. Lade Lernmaterial hoch oder stelle mir eine Frage zu deinen Notizen.' },
   ]);
@@ -70,20 +72,27 @@ export function LearningWorkspace({ onNavigate }: Props) {
     setFiles((current) => current.filter((item) => item.id !== file.id));
   };
 
-  const askAssistant = () => {
+  const askAssistant = async () => {
     const trimmed = question.trim();
-    if (!trimmed) return;
+    if (!trimmed || asking) return;
+    setAsking(true);
+    setQuestion('');
     setMessages((current) => [
       ...current,
       { role: 'user', text: trimmed },
-      {
-        role: 'assistant',
-        text: notes.trim() || files.length
-          ? `Deine Frage ist im Kontext von ${notes.trim() ? 'deinen Notizen' : 'deinen gespeicherten Materialien'} angekommen. Die Slearn-KI kann sie serverseitig verarbeiten: „${trimmed}“`
-          : 'Lade zuerst Notizen oder Lernmaterial hoch, damit die Slearn-KI deine Frage mit Kontext beantworten kann.',
-      },
     ]);
-    setQuestion('');
+    const context = {
+      notes: notes.trim() || undefined,
+      files: files.map((file) => ({ name: file.name })),
+    };
+    const result = /hausaufgabe|homework|aufgabe/i.test(trimmed)
+      ? await homeworkHelp(trimmed, context)
+      : await tutorChat(trimmed, context);
+    setMessages((current) => [...current, {
+      role: 'assistant',
+      text: result.success ? result.data.reply : result.error,
+    }]);
+    setAsking(false);
   };
 
   return (
@@ -208,11 +217,11 @@ export function LearningWorkspace({ onNavigate }: Props) {
           <input
             value={question}
             onChange={(event) => setQuestion(event.target.value)}
-            onKeyDown={(event) => { if (event.key === 'Enter') askAssistant(); }}
+            onKeyDown={(event) => { if (event.key === 'Enter') void askAssistant(); }}
             placeholder="z. B. Erkläre mir dieses Thema einfach ..."
             className="min-w-0 flex-1 rounded-xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none placeholder:text-gray-600 focus:border-cyan-400/50"
           />
-          <button onClick={askAssistant} className="rounded-xl bg-cyan-500 px-4 text-white transition-all hover:bg-cyan-400" aria-label="Frage senden">
+          <button onClick={() => void askAssistant()} disabled={asking} className="rounded-xl bg-cyan-500 px-4 text-white transition-all hover:bg-cyan-400 disabled:opacity-50" aria-label="Frage senden">
             <Send size={17} />
           </button>
         </div>
