@@ -623,7 +623,6 @@ function AdminUsersPanel() {
                     ) : (
                       <RoleDropdown
                         currentRole={u.role}
-                        isSelf={u.id === currentUser?.id}
                         onChange={(r) => handleRoleChange(u.id, r)}
                       />
                     )}
@@ -638,9 +637,8 @@ function AdminUsersPanel() {
   );
 }
 
-function RoleDropdown({ currentRole, isSelf, onChange }: {
+function RoleDropdown({ currentRole, onChange }: {
   currentRole: 'user' | 'admin';
-  isSelf: boolean;
   onChange: (role: 'user' | 'admin') => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -669,11 +667,9 @@ function RoleDropdown({ currentRole, isSelf, onChange }: {
             </button>
             <button
               onClick={() => { onChange('user'); setOpen(false); }}
-              disabled={isSelf}
-              className={`flex w-full items-center gap-2 px-3 py-2 text-xs transition-all hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed ${
+              className={`flex w-full items-center gap-2 px-3 py-2 text-xs transition-all hover:bg-white/5 ${
                 currentRole === 'user' ? 'text-white' : 'text-gray-300'
               }`}
-              title={isSelf ? "You can't demote yourself" : ''}
             >
               <Users size={14} /> User
             </button>
