@@ -71,10 +71,21 @@ const MAX_TASK_FIELD_LENGTH = 2_000;
 const AI_DEFAULT_MODELS = {
   openai: "gpt-4o-mini",
   gemini: "gemini-1.5-flash",
-  openrouter: "google/gemini-2.0-flash-exp:free",
+  openrouter: "openai/gpt-oss-20b:free",
 } as const;
 const AI_PROVIDERS = ["openai", "gemini", "openrouter"] as const;
 type AIProvider = typeof AI_PROVIDERS[number];
+
+class AIProviderError extends Error {
+  constructor(
+    readonly provider: AIProvider,
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = "AIProviderError";
+  }
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -469,6 +480,9 @@ Deno.serve(async (req: Request) => {
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (err) {
+    if (err instanceof AIProviderError) {
+      return jsonError(err.message, err.status);
+    }
     return jsonError(`Internal error: ${(err as Error).message}`, 500);
   }
 });
@@ -536,10 +550,32 @@ async function callOpenRouter(apiKey: string, model: string, systemPrompt: strin
     headers,
     body: JSON.stringify({ model, messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }], temperature: 0.7, max_tokens: 4000 }),
   });
-  if (!res.ok) throw new Error(`OpenRouter API error (${res.status})`);
+  if (!res.ok) {
+    const responseBody = await res.text();
+    let providerMessage = "";
+    try {
+      const parsed = JSON.parse(responseBody) as { error?: { message?: unknown } };
+      if (typeof parsed.error?.message === "string") providerMessage = parsed.error.message;
+    } catch {
+      providerMessage = "";
+    }
+    const safeMessage = providerMessage
+      .replace(apiKey, "[redacted]")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 300);
+    const detail = safeMessage ? `: ${safeMessage}` : "";
+    throw new AIProviderError(
+      "openrouter",
+      502,
+      `OpenRouter rejected model "${model}" (HTTP ${res.status})${detail}`,
+    );
+  }
   const data = await res.json();
   const text = data.choices?.[0]?.message?.content;
-  if (typeof text !== "string" || !text) throw new Error("OpenRouter returned no message content");
+  if (typeof text !== "string" || !text) {
+    throw new AIProviderError("openrouter", 502, `OpenRouter returned no message content for model "${model}"`);
+  }
   return { text, tokens: data.usage?.total_tokens || 0 };
 }
 function jsonError(message: string, status: number): Response {
