@@ -45,6 +45,7 @@ export function LearningPlanner() {
     (groups[task.due_date] ||= []).push(task);
     return groups;
   }, {}), [tasks]);
+  const hasOpenTasks = tasks.some((task) => !task.completed);
 
   const resetForm = () => {
     setForm(emptyForm);
@@ -88,12 +89,20 @@ export function LearningPlanner() {
   };
 
   const toggleTask = async (task: LearningTask) => {
-    await supabase.from('learning_tasks').update({ completed: !task.completed, updated_at: new Date().toISOString() }).eq('id', task.id).eq('user_id', user?.id);
+    const { error: updateError } = await supabase.from('learning_tasks').update({ completed: !task.completed, updated_at: new Date().toISOString() }).eq('id', task.id).eq('user_id', user?.id);
+    if (updateError) {
+      setError(updateError.message);
+      return;
+    }
     setTasks((current) => current.map((item) => item.id === task.id ? { ...item, completed: !item.completed } : item));
   };
 
   const deleteTask = async (task: LearningTask) => {
-    await supabase.from('learning_tasks').delete().eq('id', task.id).eq('user_id', user?.id);
+    const { error: deleteError } = await supabase.from('learning_tasks').delete().eq('id', task.id).eq('user_id', user?.id);
+    if (deleteError) {
+      setError(deleteError.message);
+      return;
+    }
     setTasks((current) => current.filter((item) => item.id !== task.id));
   };
 
@@ -112,7 +121,7 @@ export function LearningPlanner() {
     else {
       setPlan(result.data);
       if (user) {
-        await supabase.from('study_plans').insert({
+        const { error: saveError } = await supabase.from('study_plans').insert({
           user_id: user.id,
           title: result.data.title,
           goal: result.data.goal,
@@ -120,6 +129,7 @@ export function LearningPlanner() {
           units: result.data.units,
           progress: 0,
         });
+        if (saveError) setError(`Lernplan erstellt, aber nicht gespeichert: ${saveError.message}`);
       }
     }
     setPlanning(false);
@@ -135,9 +145,10 @@ export function LearningPlanner() {
         </div>
         <div className="flex flex-wrap gap-2">
           <button onClick={() => { setShowForm(true); setEditingId(null); setForm(emptyForm); }} className="flex items-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-sm text-gray-200 hover:bg-white/5"><Plus size={16} /> Hinzufügen</button>
-          <button onClick={() => void createPlan()} disabled={planning || !tasks.some((task) => !task.completed)} className="flex items-center gap-2 rounded-lg bg-cyan-500 px-3 py-2 text-sm font-semibold text-white hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-50"><Sparkles size={16} /> {planning ? 'Plan wird erstellt ...' : 'KI-Lernplan'}</button>
+          <button onClick={() => void createPlan()} disabled={planning || !hasOpenTasks} title={!hasOpenTasks ? 'Füge zuerst eine offene Aufgabe oder Prüfung hinzu.' : undefined} className="flex items-center gap-2 rounded-lg bg-cyan-500 px-3 py-2 text-sm font-semibold text-white hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-50"><Sparkles size={16} /> {planning ? 'Plan wird erstellt ...' : 'KI-Lernplan'}</button>
         </div>
       </div>
+      {!hasOpenTasks && <p className="mt-3 text-xs text-gray-500">Füge eine offene Aufgabe oder Prüfung hinzu, um daraus einen KI-Lernplan zu erstellen.</p>}
 
       {showForm && (
         <form onSubmit={(event) => void saveTask(event)} className="mt-5 grid gap-3 rounded-xl border border-cyan-400/20 bg-cyan-500/5 p-4 sm:grid-cols-2">

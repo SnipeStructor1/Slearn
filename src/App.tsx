@@ -73,7 +73,13 @@ function AppContent() {
       <main className="animate-fade-in">
         {page === 'home' && (
           <Landing
-            onGetStarted={() => setAuthOpen(true)}
+            onGetStarted={() => {
+              if (user) {
+                handleNavigate('workspace');
+              } else {
+                setAuthOpen(true);
+              }
+            }}
             onExplore={() => setPage('explore')}
           />
         )}
@@ -108,7 +114,7 @@ function AppContent() {
         )}
 
         {page === 'profile' && user && <Profile onNavigate={handleNavigate} />}
-        {page === 'admin' && user && isAdmin && <AdminPage onBack={() => setPage('dashboard')} />}
+        {page === 'admin' && user && isAdmin && <AdminPage onBack={() => handleNavigate('workspace')} />}
       </main>
 
       <AuthModal open={authOpen} onClose={() => setAuthOpen(false)} />

@@ -21,6 +21,8 @@ export function LearningWorkspace({ onNavigate }: Props) {
   const [activeTool, setActiveTool] = useState('assistant');
   const [question, setQuestion] = useState('');
   const [asking, setAsking] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [dragActive, setDragActive] = useState(false);
   const [messages, setMessages] = useState<{ role: 'assistant' | 'user'; text: string }[]>([
     { role: 'assistant', text: 'Ich bin bereit. Lade Lernmaterial hoch oder stelle mir eine Frage zu deinen Notizen.' },
   ]);
@@ -29,46 +31,65 @@ export function LearningWorkspace({ onNavigate }: Props) {
   useEffect(() => {
     if (!user) return;
     (async () => {
-      const [{ data: note }, { data: storedFiles }] = await Promise.all([
+      const [noteResult, filesResult] = await Promise.all([
         supabase.from('workspace_notes').select('content').eq('user_id', user.id).maybeSingle(),
         supabase.from('workspace_files').select('*').eq('user_id', user.id).order('created_at', { ascending: false }),
       ]);
-      setNotes(note?.content || '');
-      setFiles((storedFiles as StoredWorkspaceFile[]) || []);
+      if (noteResult.error || filesResult.error) {
+        setError(noteResult.error?.message || filesResult.error?.message || 'Workspace konnte nicht geladen werden.');
+        return;
+      }
+      setNotes(noteResult.data?.content || '');
+      setFiles((filesResult.data as StoredWorkspaceFile[]) || []);
     })();
   }, [user]);
 
   const saveNotes = async () => {
     if (!user) return;
     setSavingNotes(true);
-    await supabase.from('workspace_notes').upsert({ user_id: user.id, content: notes, updated_at: new Date().toISOString() });
+    setError(null);
+    const { error: saveError } = await supabase.from('workspace_notes').upsert({ user_id: user.id, content: notes, updated_at: new Date().toISOString() });
+    if (saveError) setError(`Notizen konnten nicht gespeichert werden: ${saveError.message}`);
     setSavingNotes(false);
   };
 
   const addFiles = async (selected: FileList | null) => {
     if (!selected || !user) return;
     setUploading(true);
+    setError(null);
     const uploaded: StoredWorkspaceFile[] = [];
     for (const file of Array.from(selected)) {
       const storagePath = `${user.id}/${crypto.randomUUID()}-${file.name}`;
       const { error } = await supabase.storage.from('workspace-files').upload(storagePath, file);
-      if (error) continue;
-      const { data } = await supabase.from('workspace_files').insert({
+      if (error) {
+        setError(`Upload von ${file.name} fehlgeschlagen: ${error.message}`);
+        continue;
+      }
+      const { data, error: metadataError } = await supabase.from('workspace_files').insert({
         user_id: user.id,
         name: file.name,
         storage_path: storagePath,
         mime_type: file.type || 'application/octet-stream',
         size_bytes: file.size,
       }).select().single();
-      if (data) uploaded.push(data as StoredWorkspaceFile);
+      if (metadataError) {
+        setError(`Datei ${file.name} wurde gespeichert, aber nicht registriert: ${metadataError.message}`);
+      } else if (data) {
+        uploaded.push(data as StoredWorkspaceFile);
+      }
     }
     setFiles((current) => [...uploaded, ...current]);
     setUploading(false);
   };
 
   const removeFile = async (file: StoredWorkspaceFile) => {
-    await supabase.storage.from('workspace-files').remove([file.storage_path]);
-    await supabase.from('workspace_files').delete().eq('id', file.id).eq('user_id', user?.id);
+    setError(null);
+    const { error: storageError } = await supabase.storage.from('workspace-files').remove([file.storage_path]);
+    const { error: metadataError } = await supabase.from('workspace_files').delete().eq('id', file.id).eq('user_id', user?.id);
+    if (storageError || metadataError) {
+      setError(storageError?.message || metadataError?.message || 'Datei konnte nicht gelöscht werden.');
+      return;
+    }
     setFiles((current) => current.filter((item) => item.id !== file.id));
   };
 
@@ -167,18 +188,28 @@ export function LearningWorkspace({ onNavigate }: Props) {
             ref={fileInputRef}
             type="file"
             multiple
-            accept=".pdf,.txt,.doc,.docx,.png,.jpg,.jpeg"
+            accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/*"
             onChange={(event) => { void addFiles(event.target.files); event.target.value = ''; }}
             className="hidden"
           />
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="mt-4 flex min-h-32 w-full flex-col items-center justify-center rounded-xl border border-dashed border-white/15 bg-white/[0.02] px-4 text-center transition-all hover:border-cyan-400/40 hover:bg-cyan-500/5"
+            onDragOver={(event) => { event.preventDefault(); setDragActive(true); }}
+            onDragLeave={() => setDragActive(false)}
+            onDrop={(event) => {
+              event.preventDefault();
+              setDragActive(false);
+              void addFiles(event.dataTransfer.files);
+            }}
+            className={`mt-4 flex min-h-32 w-full flex-col items-center justify-center rounded-xl border border-dashed px-4 text-center transition-all ${
+              dragActive ? 'border-cyan-400 bg-cyan-500/10' : 'border-white/15 bg-white/[0.02] hover:border-cyan-400/40 hover:bg-cyan-500/5'
+            }`}
           >
             <Paperclip size={22} className="text-gray-400" />
             <span className="mt-2 text-sm font-medium text-gray-300">{uploading ? 'Wird sicher gespeichert ...' : 'Dateien auswählen'}</span>
-            <span className="mt-1 text-xs text-gray-600">PDF, DOCX, TXT oder Bilder</span>
+            <span className="mt-1 text-xs text-gray-600">PDF oder Bilder · klicken oder ziehen</span>
           </button>
+          {error && <p className="mt-3 rounded-lg border border-red-400/20 bg-red-500/10 px-3 py-2 text-xs text-red-300">{error}</p>}
           <div className="mt-4 space-y-2">
             {files.length === 0 && <p className="text-center text-xs text-gray-600">Noch keine Dateien hinzugefügt</p>}
             {files.map((file) => (
