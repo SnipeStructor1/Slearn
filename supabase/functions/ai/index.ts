@@ -41,6 +41,129 @@ interface RequestBody {
   };
 }
 
+const SUPPORTED_ACTIONS = [
+  "generate_flashcards",
+  "generate_quiz",
+  "generate_study_plan",
+  "generate_summary",
+  "tutor_chat",
+  "homework_help",
+] as const satisfies readonly AIAction[];
+
+const MAX_WEEKLY_ACTIONS = 50;
+const MAX_INPUT_LENGTH = 20_000;
+const MAX_NOTES_LENGTH = 20_000;
+const MAX_FILES = 10;
+const MAX_FILE_NAME_LENGTH = 256;
+const MAX_FILE_CONTENT_LENGTH = 10_000;
+const MAX_FLASHCARDS = 100;
+const MAX_FLASHCARD_FIELD_LENGTH = 4_000;
+const MAX_CONVERSATION_MESSAGES = 50;
+const MAX_MESSAGE_CONTENT_LENGTH = 8_000;
+const MAX_GOAL_LENGTH = 2_000;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function requireString(value: unknown, field: string, maxLength: number): string {
+  if (typeof value !== "string" || value.length === 0 || value.length > maxLength) {
+    throw new Error(`${field} must be a non-empty string of at most ${maxLength} characters`);
+  }
+  return value;
+}
+
+function requireOptionalString(value: unknown, field: string, maxLength: number): string | undefined {
+  if (value === undefined) return undefined;
+  return requireString(value, field, maxLength);
+}
+
+function requireBoundedInteger(value: unknown, field: string, min: number, max: number): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || !Number.isFinite(value) || value < min || value > max) {
+    throw new Error(`${field} must be an integer between ${min} and ${max}`);
+  }
+  return value;
+}
+
+function validateRequestBody(value: unknown): RequestBody {
+  if (!isRecord(value)) throw new Error("Request body must be a JSON object");
+
+  const action = value.action;
+  if (typeof action !== "string" || !(SUPPORTED_ACTIONS as readonly string[]).includes(action)) {
+    throw new Error("Unsupported action");
+  }
+  const input = requireString(value.input, "input", MAX_INPUT_LENGTH);
+
+  let context: RequestBody["context"];
+  if (value.context !== undefined) {
+    if (!isRecord(value.context)) throw new Error("context must be an object");
+    const rawContext = value.context;
+    context = {
+      notes: requireOptionalString(rawContext.notes, "context.notes", MAX_NOTES_LENGTH),
+    };
+
+    if (rawContext.files !== undefined) {
+      if (!Array.isArray(rawContext.files) || rawContext.files.length > MAX_FILES) {
+        throw new Error(`context.files must contain at most ${MAX_FILES} files`);
+      }
+      context.files = rawContext.files.map((file, index) => {
+        if (!isRecord(file)) throw new Error(`context.files[${index}] must be an object`);
+        return {
+          name: requireString(file.name, `context.files[${index}].name`, MAX_FILE_NAME_LENGTH),
+          content: requireOptionalString(file.content, `context.files[${index}].content`, MAX_FILE_CONTENT_LENGTH),
+        };
+      });
+    }
+
+    if (rawContext.flashcards !== undefined) {
+      if (!Array.isArray(rawContext.flashcards) || rawContext.flashcards.length > MAX_FLASHCARDS) {
+        throw new Error(`context.flashcards must contain at most ${MAX_FLASHCARDS} cards`);
+      }
+      context.flashcards = rawContext.flashcards.map((card, index) => {
+        if (!isRecord(card)) throw new Error(`context.flashcards[${index}] must be an object`);
+        return {
+          front: requireString(card.front, `context.flashcards[${index}].front`, MAX_FLASHCARD_FIELD_LENGTH),
+          back: requireString(card.back, `context.flashcards[${index}].back`, MAX_FLASHCARD_FIELD_LENGTH),
+        };
+      });
+    }
+
+    if (rawContext.conversation !== undefined) {
+      if (!Array.isArray(rawContext.conversation) || rawContext.conversation.length > MAX_CONVERSATION_MESSAGES) {
+        throw new Error(`context.conversation must contain at most ${MAX_CONVERSATION_MESSAGES} messages`);
+      }
+      context.conversation = rawContext.conversation.map((message, index) => {
+        if (!isRecord(message) || (message.role !== "user" && message.role !== "assistant")) {
+          throw new Error(`context.conversation[${index}] has an invalid role`);
+        }
+        return {
+          role: message.role,
+          content: requireString(message.content, `context.conversation[${index}].content`, MAX_MESSAGE_CONTENT_LENGTH),
+        };
+      });
+    }
+  }
+
+  let options: RequestBody["options"];
+  if (value.options !== undefined) {
+    if (!isRecord(value.options)) throw new Error("options must be an object");
+    options = {
+      card_count: value.options.card_count === undefined
+        ? undefined
+        : requireBoundedInteger(value.options.card_count, "options.card_count", 1, 100),
+      question_count: value.options.question_count === undefined
+        ? undefined
+        : requireBoundedInteger(value.options.question_count, "options.question_count", 1, 100),
+      timeframe_weeks: value.options.timeframe_weeks === undefined
+        ? undefined
+        : requireBoundedInteger(value.options.timeframe_weeks, "options.timeframe_weeks", 1, 52),
+      goal: requireOptionalString(value.options.goal, "options.goal", MAX_GOAL_LENGTH),
+    };
+  }
+
+  return { action: action as AIAction, input, context, options };
+}
+
 // --- Response schemas (validated server-side) ---
 
 function validateFlashcards(data: unknown): { title: string; description: string; subject: string; summary: string[]; cards: { front: string; back: string }[] } {
@@ -206,15 +329,27 @@ Deno.serve(async (req: Request) => {
       return jsonError("AI is not enabled. Ask an admin to configure the API key.", 503);
     }
 
-    // Parse request body
-    const body: RequestBody = await req.json();
-    if (!body.action || !body.input) {
-      return jsonError("Missing action or input", 400);
+    // Parse and validate the request before constructing a provider prompt.
+    let body: RequestBody;
+    try {
+      body = validateRequestBody(await req.json());
+    } catch (error) {
+      return jsonError(`Invalid request: ${(error as Error).message}`, 400);
     }
 
-    // --- Check weekly usage limit (prepared for future cost model) ---
-    // During development: no hard limit, but we log usage
-    // Future: const MAX_WEEKLY_ACTIONS = 50; check count from ai_usage_log
+    // Keep the existing usage log as a small per-user weekly safety limit.
+    const usageSince = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const { count: weeklyUsage, error: usageError } = await adminClient
+      .from("ai_usage_log")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", user.id)
+      .gte("created_at", usageSince);
+    if (usageError) {
+      return jsonError("Unable to verify AI usage limit", 503);
+    }
+    if ((weeklyUsage ?? 0) >= MAX_WEEKLY_ACTIONS) {
+      return jsonError(`Weekly AI usage limit reached (${MAX_WEEKLY_ACTIONS} requests). Please try again later.`, 429);
+    }
 
     // --- Build the AI API call ---
     const systemPrompt = buildSystemPrompt(body.action);
