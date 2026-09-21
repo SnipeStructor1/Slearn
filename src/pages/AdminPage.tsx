@@ -8,6 +8,13 @@ import { supabase, type StudySet, type Flashcard, type Profile, type AppSettings
 import { useAuth } from '@/lib/auth-context';
 import { getTheme, getIcon } from '@/lib/themes';
 import { subjects } from '@/lib/mock-data';
+import {
+  AI_DEFAULT_MODELS,
+  AI_MODEL_PRESETS,
+  AI_PROVIDER_OPTIONS,
+  isAIProvider,
+  type AIProvider,
+} from '@/lib/ai-providers';
 
 type AdminTab = 'overview' | 'sets' | 'users' | 'settings';
 type SetDetail = { set: StudySet; cards: Flashcard[]; ownerName: string } | null;
@@ -688,7 +695,8 @@ function AdminSettingsPanel() {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [apiKey, setApiKey] = useState('');
-  const [provider, setProvider] = useState('openai');
+  const [provider, setProvider] = useState<AIProvider>('openai');
+  const [model, setModel] = useState(AI_DEFAULT_MODELS.openai);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -696,11 +704,16 @@ function AdminSettingsPanel() {
 
   useEffect(() => {
     (async () => {
-      const { data } = await supabase.from('app_settings').select('*').eq('id', 1).maybeSingle();
+      const { data } = await supabase
+        .from('app_settings')
+        .select('id, ai_provider, ai_model, ai_key_active, updated_at, updated_by')
+        .eq('id', 1)
+        .maybeSingle();
       if (data) {
+        const loadedProvider = isAIProvider(data.ai_provider) ? data.ai_provider : 'openai';
         setSettings(data as AppSettings);
-        setApiKey(data.ai_api_key || '');
-        setProvider(data.ai_provider || 'openai');
+        setProvider(loadedProvider);
+        setModel(data.ai_model || AI_DEFAULT_MODELS[loadedProvider]);
       }
       setLoading(false);
     })();
@@ -711,17 +724,30 @@ function AdminSettingsPanel() {
     setError(null);
     setSaved(false);
 
-    const keyActive = apiKey.trim().length > 0;
+    if (!isAIProvider(provider)) {
+      setError('Please select a supported AI provider.');
+      setSaving(false);
+      return;
+    }
+    if (!model.trim()) {
+      setError('Please enter a model ID.');
+      setSaving(false);
+      return;
+    }
 
-    const { error: err } = await supabase
-      .from('app_settings')
-      .update({
-        ai_api_key: apiKey.trim(),
+    const keyActive = apiKey.trim().length > 0 || Boolean(settings?.ai_key_active);
+    const updates: Record<string, unknown> = {
         ai_provider: provider,
+        ai_model: model.trim(),
         ai_key_active: keyActive,
         updated_at: new Date().toISOString(),
         updated_by: user?.id || null,
-      })
+      };
+    if (apiKey.trim()) updates.ai_api_key = apiKey.trim();
+
+    const { error: err } = await supabase
+      .from('app_settings')
+      .update(updates)
       .eq('id', 1);
 
     if (err) {
@@ -729,8 +755,9 @@ function AdminSettingsPanel() {
     } else {
       setSettings({
         ...settings!,
-        ai_api_key: apiKey.trim(),
+        ai_api_key: apiKey.trim() || settings?.ai_api_key || '',
         ai_provider: provider,
+        ai_model: model.trim(),
         ai_key_active: keyActive,
       });
       setSaved(true);
@@ -742,7 +769,7 @@ function AdminSettingsPanel() {
           admin_id: user.id,
           action: 'settings_update',
           target_type: 'app_settings',
-          details: { provider, key_active: keyActive },
+          details: { provider, model: model.trim(), key_active: keyActive },
         });
       }
     }
@@ -767,7 +794,6 @@ function AdminSettingsPanel() {
   };
 
   const handleClear = async () => {
-    setApiKey('');
     await supabase
       .from('app_settings')
       .update({
@@ -778,8 +804,10 @@ function AdminSettingsPanel() {
         updated_by: user?.id || null,
       })
       .eq('id', 1);
-    setSettings(prev => prev ? { ...prev, ai_api_key: '', ai_provider: 'none', ai_key_active: false } : prev);
+    setSettings(prev => prev ? { ...prev, ai_api_key: '', ai_provider: 'none', ai_model: AI_DEFAULT_MODELS.openai, ai_key_active: false } : prev);
+    setApiKey('');
     setProvider('openai');
+    setModel(AI_DEFAULT_MODELS.openai);
   };
 
   if (loading) {
@@ -813,7 +841,7 @@ function AdminSettingsPanel() {
               </p>
               <p className="text-xs text-gray-400">
                 {isActive
-                  ? `Provider: ${settings?.ai_provider || 'openai'} — AI features are enabled`
+                  ? `Provider: ${settings?.ai_provider || 'openai'} · Model: ${settings?.ai_model || model}`
                   : 'AI features are disabled until a valid key is set'}
               </p>
             </div>
@@ -837,13 +865,13 @@ function AdminSettingsPanel() {
         <div className="mt-4">
           <label className="mb-2 block text-sm font-medium text-gray-300">AI Provider</label>
           <div className="flex gap-2">
-            {[
-              { id: 'openai', label: 'OpenAI' },
-              { id: 'gemini', label: 'Google Gemini' },
-            ].map((p) => (
+            {AI_PROVIDER_OPTIONS.map((p) => (
               <button
                 key={p.id}
-                onClick={() => setProvider(p.id)}
+                onClick={() => {
+                  setProvider(p.id);
+                  setModel(AI_DEFAULT_MODELS[p.id]);
+                }}
                 className={`rounded-lg border px-4 py-2 text-sm font-medium transition-all ${
                   provider === p.id
                     ? 'border-cyan-400/40 bg-cyan-500/10 text-cyan-300'
@@ -858,14 +886,14 @@ function AdminSettingsPanel() {
 
         <div className="mt-4">
           <label className="mb-2 block text-sm font-medium text-gray-300">
-            {provider === 'openai' ? 'OpenAI API Key' : 'Gemini API Key'}
+            {provider === 'openai' ? 'OpenAI API Key' : provider === 'gemini' ? 'Gemini API Key' : 'OpenRouter API Key'}
           </label>
           <div className="relative">
             <input
               type="password"
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
-              placeholder={provider === 'openai' ? 'sk-...' : 'AIza...'}
+              placeholder={provider === 'openai' ? 'sk-...' : provider === 'gemini' ? 'AIza...' : 'sk-or-...'}
               className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 pr-12 text-sm text-white placeholder-gray-500 outline-none focus:border-cyan-400/50 focus:ring-2 focus:ring-cyan-400/20"
             />
             {apiKey && (
@@ -878,9 +906,36 @@ function AdminSettingsPanel() {
             )}
           </div>
           <p className="mt-2 text-xs text-gray-500">
-            Your key is stored securely and only accessible by admins. Get a key from{' '}
-            {provider === 'openai' ? 'platform.openai.com' : 'aistudio.google.com'}.
+            Leave blank to keep the existing server-side key. Get a key from{' '}
+            {provider === 'openai' ? 'platform.openai.com' : provider === 'gemini' ? 'aistudio.google.com' : 'openrouter.ai'}.
           </p>
+        </div>
+
+        <div className="mt-4">
+          <label className="mb-2 block text-sm font-medium text-gray-300">Model</label>
+          <select
+            value={AI_MODEL_PRESETS[provider].some((preset) => preset.id === model) ? model : '__custom__'}
+            onChange={(event) => {
+              if (event.target.value !== '__custom__') setModel(event.target.value);
+            }}
+            className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none focus:border-cyan-400/50"
+          >
+            {AI_MODEL_PRESETS[provider].map((preset) => (
+              <option key={preset.id} value={preset.id}>
+                {preset.label}{preset.free ? ' · FREE' : ''}
+              </option>
+            ))}
+            <option value="__custom__">Custom model ID</option>
+          </select>
+          <input
+            value={model}
+            onChange={(event) => setModel(event.target.value)}
+            placeholder={provider === 'openrouter' ? 'provider/model[:free]' : 'Enter a model ID'}
+            className="mt-2 w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white placeholder-gray-500 outline-none focus:border-cyan-400/50"
+          />
+          {provider === 'openrouter' && (
+            <p className="mt-2 text-xs text-gray-500">Free presets are labeled FREE. OpenRouter model IDs can be entered manually as models change.</p>
+          )}
         </div>
 
         {error && (
