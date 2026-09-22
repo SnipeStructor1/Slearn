@@ -3,6 +3,7 @@ type ErrorLike = { message?: string; status?: number } | string | null | undefin
 const knownMessages: Array<[RegExp, string]> = [
   [/not authenticated|unauthorized|missing authorization/i, 'Deine Sitzung ist abgelaufen – bitte melde dich kurz neu an.'],
   [/ai.*not enabled|settings not configured|invalid ai settings/i, 'Die KI ist gerade noch nicht startklar – bitte prüfe die KI-Konfiguration.'],
+  [/account has been suspended|account.*banned/i, 'Dein Konto wurde gesperrt. Bitte wende dich an einen Administrator.'],
   [/weekly ai usage limit/i, 'Die KI braucht kurz eine Pause – dein Wochenlimit ist erreicht.'],
   [/invalid request|request body|unsupported action/i, 'Die Anfrage hatte einen kleinen Knoten – bitte versuch es nochmal.'],
   [/unable to reach|network|fetch|failed to fetch/i, 'Der Server ist gerade auf Tauchstation – bitte versuch es gleich nochmal.'],

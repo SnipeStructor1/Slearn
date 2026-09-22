@@ -57,7 +57,7 @@ const SUPPORTED_ACTIONS = [
   "homework_help",
 ] as const satisfies readonly AIAction[];
 
-const MAX_WEEKLY_ACTIONS = 50;
+const DEFAULT_WEEKLY_ACTION_LIMIT = 200;
 const MAX_INPUT_LENGTH = 20_000;
 const MAX_NOTES_LENGTH = 20_000;
 const MAX_FILES = 10;
@@ -451,6 +451,18 @@ Deno.serve(async (req: Request) => {
       return jsonError("Unauthorized", 401);
     }
 
+    const { data: profile, error: profileError } = await adminClient
+      .from("profiles")
+      .select("role, ai_weekly_limit, is_banned")
+      .eq("id", user.id)
+      .maybeSingle();
+    if (profileError || !profile) {
+      return jsonError("Unable to verify account access", 503);
+    }
+    if (profile.is_banned) {
+      return jsonError("Your account has been suspended. Please contact an administrator.", 403);
+    }
+
     // Read API key from app_settings (server-side only — never returned to client)
     const { data: settings, error: settingsError } = await adminClient
       .from("app_settings")
@@ -474,18 +486,23 @@ Deno.serve(async (req: Request) => {
       return jsonError(`Invalid request: ${(error as Error).message}`, 400);
     }
 
-    // Keep the existing usage log as a small per-user weekly safety limit.
+    // Admins are trusted operators and do not consume the regular user quota.
     const usageSince = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-    const { count: weeklyUsage, error: usageError } = await adminClient
-      .from("ai_usage_log")
-      .select("id", { count: "exact", head: true })
-      .eq("user_id", user.id)
-      .gte("created_at", usageSince);
-    if (usageError) {
-      return jsonError("Unable to verify AI usage limit", 503);
-    }
-    if ((weeklyUsage ?? 0) >= MAX_WEEKLY_ACTIONS) {
-      return jsonError(`Weekly AI usage limit reached (${MAX_WEEKLY_ACTIONS} requests). Please try again later.`, 429);
+    if (profile.role !== "admin") {
+      const configuredLimit = Number.isInteger(profile.ai_weekly_limit)
+        ? profile.ai_weekly_limit
+        : DEFAULT_WEEKLY_ACTION_LIMIT;
+      const { count: weeklyUsage, error: usageError } = await adminClient
+        .from("ai_usage_log")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", user.id)
+        .gte("created_at", usageSince);
+      if (usageError) {
+        return jsonError("Unable to verify AI usage limit", 503);
+      }
+      if ((weeklyUsage ?? 0) >= configuredLimit) {
+        return jsonError(`Weekly AI usage limit reached (${configuredLimit} requests). Please try again later.`, 429);
+      }
     }
 
     // --- Build the AI API call ---

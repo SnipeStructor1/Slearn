@@ -52,6 +52,8 @@ export type Profile = {
   last_studied_date: string | null;
   total_cards_learned: number;
   role: 'user' | 'admin';
+  ai_weekly_limit: number;
+  is_banned: boolean;
   created_at: string;
 };
 
