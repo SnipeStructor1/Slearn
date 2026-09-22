@@ -75,6 +75,11 @@ const AI_DEFAULT_MODELS = {
   gemini: "gemini-1.5-flash",
   openrouter: "openai/gpt-oss-20b:free",
 } as const;
+const OPENROUTER_FALLBACK_MODELS = [
+  "openai/gpt-4o-mini",
+  "google/gemini-2.0-flash-exp:free",
+  "meta-llama/llama-3.1-8b-instruct:free",
+] as const;
 const AI_PROVIDERS = ["openai", "gemini", "openrouter"] as const;
 type AIProvider = typeof AI_PROVIDERS[number];
 
@@ -654,6 +659,29 @@ async function callGemini(apiKey: string, model: string, systemPrompt: string, u
 }
 
 async function callOpenRouter(apiKey: string, model: string, systemPrompt: string, userPrompt: string): Promise<{ text: string; tokens: number }> {
+  const attempts = [model, ...OPENROUTER_FALLBACK_MODELS.filter((candidate) => candidate !== model)];
+  let lastError: Error | undefined;
+
+  for (const candidate of attempts) {
+    try {
+      return await callOpenRouterOnce(apiKey, candidate, systemPrompt, userPrompt);
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      if (!(error instanceof AIProviderError)) {
+        continue;
+      }
+      const isRecoverable = error.status === 429 || error.status === 402 || error.status === 403 || error.status === 400;
+      if (!isRecoverable) {
+        throw error;
+      }
+    }
+  }
+
+  if (lastError) throw lastError;
+  throw new AIProviderError("openrouter", 502, `OpenRouter failed for model "${model}"`);
+}
+
+async function callOpenRouterOnce(apiKey: string, model: string, systemPrompt: string, userPrompt: string): Promise<{ text: string; tokens: number }> {
   const headers: Record<string, string> = { "Content-Type": "application/json", "Authorization": "Bearer " + apiKey };
   const referer = Deno.env.get("OPENROUTER_HTTP_REFERER");
   const title = Deno.env.get("OPENROUTER_X_TITLE");
@@ -681,7 +709,7 @@ async function callOpenRouter(apiKey: string, model: string, systemPrompt: strin
     const detail = safeMessage ? `: ${safeMessage}` : "";
     throw new AIProviderError(
       "openrouter",
-      502,
+      res.status,
       `OpenRouter rejected model "${model}" (HTTP ${res.status})${detail}`,
     );
   }
