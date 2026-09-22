@@ -40,21 +40,6 @@ interface RequestBody {
       due_date: string;
       estimated_hours: number | null;
     }[];
-    analysis_context?: {
-      context_summary: string;
-      topics: { name: string; details: string }[];
-      tasks: {
-        title: string;
-        description: string;
-        subject: string;
-        task_type: "assignment" | "exam";
-        due_date: string | null;
-        estimated_hours: number | null;
-        confidence: number;
-      }[];
-      open_question: { id: string; question: string };
-    };
-    memory_context?: { title: string; content: string }[];
   };
   options?: {
     card_count?: number;
@@ -216,50 +201,6 @@ function validateRequestBody(value: unknown): RequestBody {
           task_type: task.task_type,
           due_date: requireString(task.due_date, `context.tasks[${index}].due_date`, 30),
           estimated_hours: estimatedHours ?? null,
-        };
-      });
-    }
-    if (rawContext.analysis_context !== undefined) {
-      if (!isRecord(rawContext.analysis_context)) throw new Error("context.analysis_context must be an object");
-      const analysis = rawContext.analysis_context;
-      context.analysis_context = {
-        context_summary: requireString(analysis.context_summary, "context.analysis_context.context_summary", 4000),
-        topics: Array.isArray(analysis.topics) ? analysis.topics.slice(0, 20).map((topic, index) => {
-          if (!isRecord(topic)) throw new Error(`context.analysis_context.topics[${index}] must be an object`);
-          return {
-            name: requireString(topic.name, `context.analysis_context.topics[${index}].name`, 200),
-            details: requireString(topic.details, `context.analysis_context.topics[${index}].details`, 1000),
-          };
-        }) : [],
-        tasks: Array.isArray(analysis.tasks) ? analysis.tasks.slice(0, MAX_TASKS).map((task, index) => {
-          if (!isRecord(task)) throw new Error(`context.analysis_context.tasks[${index}] must be an object`);
-          if (task.task_type !== "assignment" && task.task_type !== "exam") throw new Error(`context.analysis_context.tasks[${index}].task_type is invalid`);
-          return {
-            title: requireString(task.title, `context.analysis_context.tasks[${index}].title`, 300),
-            description: typeof task.description === "string" ? task.description.slice(0, 1000) : "",
-            subject: requireString(task.subject, `context.analysis_context.tasks[${index}].subject`, 200),
-            task_type: task.task_type,
-            due_date: task.due_date === null ? null : requireString(task.due_date, `context.analysis_context.tasks[${index}].due_date`, 30),
-            estimated_hours: typeof task.estimated_hours === "number" && Number.isFinite(task.estimated_hours) ? task.estimated_hours : null,
-            confidence: typeof task.confidence === "number" && Number.isFinite(task.confidence) ? task.confidence : 0,
-          };
-        }) : [],
-        open_question: (() => {
-          if (!isRecord(analysis.open_question)) throw new Error("context.analysis_context.open_question must be an object");
-          return {
-            id: requireString(analysis.open_question.id, "context.analysis_context.open_question.id", 100),
-            question: requireString(analysis.open_question.question, "context.analysis_context.open_question.question", 2000),
-          };
-        })(),
-      };
-    }
-    if (rawContext.memory_context !== undefined) {
-      if (!Array.isArray(rawContext.memory_context) || rawContext.memory_context.length > 30) throw new Error("context.memory_context is invalid");
-      context.memory_context = rawContext.memory_context.map((item, index) => {
-        if (!isRecord(item)) throw new Error(`context.memory_context[${index}] must be an object`);
-        return {
-          title: requireString(item.title, `context.memory_context[${index}].title`, 300),
-          content: requireString(item.content, `context.memory_context[${index}].content`, 2000),
         };
       });
     }
@@ -485,7 +426,7 @@ function buildSystemPrompt(action: AIAction): string {
     case "generate_summary":
       return `${base} Summarize the given material. Respond with: {"summary": string[], "key_points": string[]}`;
     case "tutor_chat":
-      return `${base} You are a patient tutor. Answer the student's question using the provided context. For workspace analysis follow-ups, stay focused on the concrete open question, treat the student's answer as user-provided context, and never invent deadlines, exams, or assignments. Respond with: {"reply": string, "suggestions": string[]}`;
+      return `${base} You are a patient tutor. Answer the student's question using the provided context. Respond with: {"reply": string, "suggestions": string[]}`;
     case "homework_help":
       return `${base} Help with homework. Guide the student without just giving the answer. Respond with: {"reply": string, "suggestions": string[]}`;
     default:
@@ -510,12 +451,6 @@ function buildUserPrompt(body: RequestBody): string {
   }
   if (body.context?.tasks && body.context.tasks.length > 0) {
     prompt += `\nOpen learning tasks and exams (use these exact ids and due dates):\n${JSON.stringify(body.context.tasks)}\n`;
-  }
-  if (body.context?.analysis_context) {
-    prompt += `\nWorkspace analysis follow-up context. Stay focused on this concrete question and do not invent dates or tasks:\n${JSON.stringify(body.context.analysis_context)}\n`;
-  }
-  if (body.context?.memory_context && body.context.memory_context.length > 0) {
-    prompt += `\nRelevant confirmed workspace memory:\n${body.context.memory_context.map((item) => `- ${item.title}: ${item.content}`).join("\n")}\n`;
   }
   if (body.options) {
     const parts: string[] = [];
