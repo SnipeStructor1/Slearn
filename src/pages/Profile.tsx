@@ -3,7 +3,6 @@ import { Flame, TrendingUp, Library, BookOpen, Edit2, Check, X } from 'lucide-re
 import { useAuth } from '@/lib/auth-context';
 import { supabase } from '@/lib/supabase';
 import { userError } from '@/lib/error-text';
-import { t, type AppLanguage } from '@/lib/i18n';
 
 export function Profile({ onNavigate }: { onNavigate?: (page: 'admin') => void }) {
   const { user, profile, profileError, refreshProfile, isAdmin } = useAuth();
@@ -11,20 +10,16 @@ export function Profile({ onNavigate }: { onNavigate?: (page: 'admin') => void }
   const [displayName, setDisplayName] = useState(profile?.display_name || '');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [appLanguage, setAppLanguage] = useState<AppLanguage>(profile?.app_language || 'de');
-  const [learningLanguage, setLearningLanguage] = useState(profile?.learning_language || 'de');
 
   useEffect(() => {
     setDisplayName(profile?.display_name || '');
-    setAppLanguage(profile?.app_language || 'de');
-    setLearningLanguage(profile?.learning_language || 'de');
-  }, [profile?.display_name, profile?.app_language, profile?.learning_language]);
+  }, [profile?.display_name]);
 
   const handleSave = async () => {
     if (!user) return;
     setSaving(true);
     setSaveError(null);
-    const { error } = await supabase.from('profiles').update({ display_name: displayName.trim(), app_language: appLanguage, learning_language: learningLanguage }).eq('id', user.id);
+    const { error } = await supabase.from('profiles').update({ display_name: displayName.trim() }).eq('id', user.id);
     if (error) {
       setSaveError(userError(error, 'Dein Profil wollte sich gerade nicht speichern lassen.'));
       setSaving(false);
@@ -111,13 +106,7 @@ export function Profile({ onNavigate }: { onNavigate?: (page: 'admin') => void }
 
       {/* Account info */}
       <div className="mt-6 rounded-2xl border border-white/5 bg-white/[0.02] p-6">
-        <h3 className="text-sm font-semibold text-white">{t(appLanguage, 'languageSettings')}</h3>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          <label className="text-sm text-gray-400">{t(appLanguage, 'appLanguage')}<select value={appLanguage} onChange={(e) => setAppLanguage(e.target.value as AppLanguage)} className="mt-1 w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-white"><option value="de">Deutsch</option><option value="en">English</option></select></label>
-          <label className="text-sm text-gray-400">{t(appLanguage, 'learningLanguage')}<select value={learningLanguage} onChange={(e) => setLearningLanguage(e.target.value)} className="mt-1 w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-white"><option value="de">Deutsch</option><option value="en">English</option><option value="fr">Français</option></select></label>
-        </div>
-        <button onClick={() => void handleSave()} disabled={saving} className="mt-3 rounded-lg bg-cyan-500 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">{saving ? '...' : t(appLanguage, 'saved')}</button>
-        <h3 className="mt-6 text-sm font-semibold text-white">Account Details</h3>
+        <h3 className="text-sm font-semibold text-white">Account Details</h3>
         <div className="mt-4 space-y-3">
           <div className="flex items-center justify-between text-sm">
             <span className="text-gray-400">E-Mail</span>
