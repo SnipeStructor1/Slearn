@@ -451,12 +451,31 @@ Deno.serve(async (req: Request) => {
       return jsonError("Unauthorized", 401);
     }
 
-    const { data: profile, error: profileError } = await adminClient
+    const { data: profileWithControls, error: profileError } = await adminClient
       .from("profiles")
       .select("role, ai_weekly_limit, is_banned")
       .eq("id", user.id)
       .maybeSingle();
-    if (profileError || !profile) {
+    let profile = profileWithControls;
+    if (profileError && (
+      profileError.code === "42703" ||
+      /ai_weekly_limit|is_banned|column .* does not exist/i.test(profileError.message)
+    )) {
+      // Keep the existing AI endpoint usable while an older deployment is
+      // waiting for the optional admin-controls migration.
+      const legacyProfileResult = await adminClient
+        .from("profiles")
+        .select("role")
+        .eq("id", user.id)
+        .maybeSingle();
+      if (legacyProfileResult.error) {
+        return jsonError("Unable to verify account access", 503);
+      }
+      profile = legacyProfileResult.data
+        ? { ...legacyProfileResult.data, ai_weekly_limit: DEFAULT_WEEKLY_ACTION_LIMIT, is_banned: false }
+        : null;
+    }
+    if ((profileError && !profile) || !profile) {
       return jsonError("Unable to verify account access", 503);
     }
     if (profile.is_banned) {
