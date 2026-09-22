@@ -25,6 +25,8 @@ interface RequestBody {
   action: AIAction;
   input: string;
   context?: {
+    app_language?: "de" | "en";
+    learning_language?: string;
     notes?: string;
     files?: { name: string; content?: string }[];
     flashcards?: { front: string; back: string }[];
@@ -38,6 +40,21 @@ interface RequestBody {
       due_date: string;
       estimated_hours: number | null;
     }[];
+    analysis_context?: {
+      context_summary: string;
+      topics: { name: string; details: string }[];
+      tasks: {
+        title: string;
+        description: string;
+        subject: string;
+        task_type: "assignment" | "exam";
+        due_date: string | null;
+        estimated_hours: number | null;
+        confidence: number;
+      }[];
+      open_question: { id: string; question: string };
+    };
+    memory_context?: { title: string; content: string }[];
   };
   options?: {
     card_count?: number;
@@ -128,6 +145,13 @@ function validateRequestBody(value: unknown): RequestBody {
     context = {
       notes: requireOptionalString(rawContext.notes, "context.notes", MAX_NOTES_LENGTH),
     };
+    if (rawContext.app_language !== undefined && rawContext.app_language !== "de" && rawContext.app_language !== "en") {
+      throw new Error("context.app_language must be de or en");
+    }
+    if (rawContext.learning_language !== undefined) {
+      context.learning_language = requireString(rawContext.learning_language, "context.learning_language", 80);
+    }
+    context.app_language = rawContext.app_language as "de" | "en" | undefined;
 
     if (rawContext.files !== undefined) {
       if (!Array.isArray(rawContext.files) || rawContext.files.length > MAX_FILES) {
@@ -195,6 +219,50 @@ function validateRequestBody(value: unknown): RequestBody {
         };
       });
     }
+    if (rawContext.analysis_context !== undefined) {
+      if (!isRecord(rawContext.analysis_context)) throw new Error("context.analysis_context must be an object");
+      const analysis = rawContext.analysis_context;
+      context.analysis_context = {
+        context_summary: requireString(analysis.context_summary, "context.analysis_context.context_summary", 4000),
+        topics: Array.isArray(analysis.topics) ? analysis.topics.slice(0, 20).map((topic, index) => {
+          if (!isRecord(topic)) throw new Error(`context.analysis_context.topics[${index}] must be an object`);
+          return {
+            name: requireString(topic.name, `context.analysis_context.topics[${index}].name`, 200),
+            details: requireString(topic.details, `context.analysis_context.topics[${index}].details`, 1000),
+          };
+        }) : [],
+        tasks: Array.isArray(analysis.tasks) ? analysis.tasks.slice(0, MAX_TASKS).map((task, index) => {
+          if (!isRecord(task)) throw new Error(`context.analysis_context.tasks[${index}] must be an object`);
+          if (task.task_type !== "assignment" && task.task_type !== "exam") throw new Error(`context.analysis_context.tasks[${index}].task_type is invalid`);
+          return {
+            title: requireString(task.title, `context.analysis_context.tasks[${index}].title`, 300),
+            description: typeof task.description === "string" ? task.description.slice(0, 1000) : "",
+            subject: requireString(task.subject, `context.analysis_context.tasks[${index}].subject`, 200),
+            task_type: task.task_type,
+            due_date: task.due_date === null ? null : requireString(task.due_date, `context.analysis_context.tasks[${index}].due_date`, 30),
+            estimated_hours: typeof task.estimated_hours === "number" && Number.isFinite(task.estimated_hours) ? task.estimated_hours : null,
+            confidence: typeof task.confidence === "number" && Number.isFinite(task.confidence) ? task.confidence : 0,
+          };
+        }) : [],
+        open_question: (() => {
+          if (!isRecord(analysis.open_question)) throw new Error("context.analysis_context.open_question must be an object");
+          return {
+            id: requireString(analysis.open_question.id, "context.analysis_context.open_question.id", 100),
+            question: requireString(analysis.open_question.question, "context.analysis_context.open_question.question", 2000),
+          };
+        })(),
+      };
+    }
+    if (rawContext.memory_context !== undefined) {
+      if (!Array.isArray(rawContext.memory_context) || rawContext.memory_context.length > 30) throw new Error("context.memory_context is invalid");
+      context.memory_context = rawContext.memory_context.map((item, index) => {
+        if (!isRecord(item)) throw new Error(`context.memory_context[${index}] must be an object`);
+        return {
+          title: requireString(item.title, `context.memory_context[${index}].title`, 300),
+          content: requireString(item.content, `context.memory_context[${index}].content`, 2000),
+        };
+      });
+    }
   }
 
   let options: RequestBody["options"];
@@ -245,6 +313,15 @@ function validateWorkspaceAnalysis(data: unknown): {
   topics: { name: string; details: string; source_names: string[] }[];
   tasks: { title: string; description: string; subject: string; task_type: "assignment" | "exam"; due_date: string | null; estimated_hours: number | null; confidence: number }[];
   uncertainties: string[];
+  open_questions: { id: string; question: string; suggestions: string[] }[];
+  language_learning: {
+    topic_type: "language_learning";
+    target_language: string;
+    source_language: string | null;
+    vocabulary: { term: string; translation: string; notes?: string }[];
+    grammar: string[];
+    goals: string[];
+  } | null;
 } {
   if (!isRecord(data)) throw new Error("Invalid workspace analysis response");
 
@@ -258,6 +335,30 @@ function validateWorkspaceAnalysis(data: unknown): {
     if (!Array.isArray(value) || value.length > maxItems) throw new Error(`${field} must be an array of at most ${maxItems} strings`);
     return value.map((item, index) => analysisString(item, `${field}[${index}]`, maxLength));
   };
+  const rawQuestions = data.open_questions === undefined ? data.uncertainties : data.open_questions;
+  if (!Array.isArray(rawQuestions) || rawQuestions.length > MAX_TASKS) throw new Error("open_questions must be an array");
+  const open_questions = rawQuestions.map((item, index) => {
+    if (typeof item === "string") return { id: `question-${index + 1}`, question: analysisString(item, `open_questions[${index}]`, MAX_TASK_FIELD_LENGTH), suggestions: [] };
+    if (!isRecord(item)) throw new Error(`open_questions[${index}] must be an object`);
+    const suggestions = analysisStringArray(item.suggestions, `open_questions[${index}].suggestions`, 3, MAX_TASK_FIELD_LENGTH);
+    if (suggestions.length > 3) throw new Error(`open_questions[${index}].suggestions must contain at most 3 items`);
+    return { id: analysisString(item.id, `open_questions[${index}].id`, 100), question: analysisString(item.question, `open_questions[${index}].question`, MAX_TASK_FIELD_LENGTH), suggestions };
+  });
+  let language_learning = null;
+  if (data.language_learning !== undefined && data.language_learning !== null) {
+    if (!isRecord(data.language_learning) || data.language_learning.topic_type !== "language_learning") throw new Error("Invalid language_learning metadata");
+    language_learning = {
+      topic_type: "language_learning" as const,
+      target_language: analysisString(data.language_learning.target_language, "language_learning.target_language", 80),
+      source_language: data.language_learning.source_language === null ? null : analysisString(data.language_learning.source_language, "language_learning.source_language", 80),
+      vocabulary: Array.isArray(data.language_learning.vocabulary) ? data.language_learning.vocabulary.map((entry, index) => {
+        if (!isRecord(entry)) throw new Error(`language_learning.vocabulary[${index}] must be an object`);
+        return { term: analysisString(entry.term, `language_learning.vocabulary[${index}].term`, 500), translation: analysisString(entry.translation, `language_learning.vocabulary[${index}].translation`, 500), ...(entry.notes === undefined ? {} : { notes: analysisString(entry.notes, `language_learning.vocabulary[${index}].notes`, 1000) }) };
+      }) : (() => { throw new Error("language_learning.vocabulary must be an array"); })(),
+      grammar: analysisStringArray(data.language_learning.grammar, "language_learning.grammar", MAX_TASKS, MAX_TASK_FIELD_LENGTH),
+      goals: analysisStringArray(data.language_learning.goals, "language_learning.goals", MAX_TASKS, MAX_TASK_FIELD_LENGTH),
+    };
+  }
   const validDate = (value: unknown, field: string): string | null => {
     if (value === null) return null;
     if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
@@ -310,7 +411,9 @@ function validateWorkspaceAnalysis(data: unknown): {
     context_summary: analysisString(data.context_summary, "context_summary", MAX_NOTES_LENGTH),
     topics,
     tasks,
-    uncertainties: analysisStringArray(data.uncertainties, "uncertainties", MAX_TASKS, MAX_TASK_FIELD_LENGTH),
+    uncertainties: open_questions.map((item) => item.question),
+    open_questions,
+    language_learning,
   };
 }
 
@@ -372,7 +475,7 @@ function buildSystemPrompt(action: AIAction): string {
   const base = "You are Slearn's AI learning assistant. You help students study effectively. All responses must be valid JSON. Do not include markdown code fences or any text outside the JSON object.";
   switch (action) {
     case "analyze_workspace":
-      return `${base} Analyze all provided notes and uploaded material. Never invent a date: use null when a deadline is not reliably stated and add a concrete question to uncertainties. Group related material into topics and produce a compact context summary. Respond with: {"context_summary": string, "topics": [{"name": string, "details": string, "source_names": string[]}], "tasks": [{"title": string, "description": string, "subject": string, "task_type": "assignment"|"exam", "due_date": "YYYY-MM-DD"|null, "estimated_hours": number|null, "confidence": number}], "uncertainties": string[]}`;
+      return `${base} Analyze all provided notes and uploaded material. Never invent a date: use null when a deadline is not reliably stated. Return up to three concrete answer suggestions for every open question, derived only from the material; use [] if none can be grounded. Detect language-learning material separately. Respond with: {"context_summary": string, "topics": [{"name": string, "details": string, "source_names": string[]}], "tasks": [{"title": string, "description": string, "subject": string, "task_type": "assignment"|"exam", "due_date": "YYYY-MM-DD"|null, "estimated_hours": number|null, "confidence": number}], "uncertainties": string[], "open_questions": [{"id": string, "question": string, "suggestions": string[]}], "language_learning": null|{"topic_type":"language_learning","target_language":string,"source_language":string|null,"vocabulary":[{"term":string,"translation":string,"notes":string}],"grammar":[string],"goals":[string]}`;
     case "generate_flashcards":
       return `${base} Create high-quality flashcards from the given input. Each card should have a clear question on the front and a concise but complete answer on the back. Respond with: {"title": string, "description": string, "subject": string, "summary": string[], "cards": [{"front": string, "back": string}]}`;
     case "generate_quiz":
@@ -382,7 +485,7 @@ function buildSystemPrompt(action: AIAction): string {
     case "generate_summary":
       return `${base} Summarize the given material. Respond with: {"summary": string[], "key_points": string[]}`;
     case "tutor_chat":
-      return `${base} You are a patient tutor. Answer the student's question using the provided context. Respond with: {"reply": string, "suggestions": string[]}`;
+      return `${base} You are a patient tutor. Answer the student's question using the provided context. For workspace analysis follow-ups, stay focused on the concrete open question, treat the student's answer as user-provided context, and never invent deadlines, exams, or assignments. Respond with: {"reply": string, "suggestions": string[]}`;
     case "homework_help":
       return `${base} Help with homework. Guide the student without just giving the answer. Respond with: {"reply": string, "suggestions": string[]}`;
     default:
@@ -392,6 +495,7 @@ function buildSystemPrompt(action: AIAction): string {
 
 function buildUserPrompt(body: RequestBody): string {
   let prompt = `Input: ${body.input}\n`;
+  if (body.context?.app_language || body.context?.learning_language) prompt += `\nLanguage settings: UI=${body.context.app_language || "de"}, learning language=${body.context.learning_language || "de"}. Keep explanations and generated learning material aligned with these settings.\n`;
   if (body.context?.notes) {
     prompt += `\nStudent's notes:\n${body.context.notes.slice(0, 8000)}\n`;
   }
@@ -406,6 +510,12 @@ function buildUserPrompt(body: RequestBody): string {
   }
   if (body.context?.tasks && body.context.tasks.length > 0) {
     prompt += `\nOpen learning tasks and exams (use these exact ids and due dates):\n${JSON.stringify(body.context.tasks)}\n`;
+  }
+  if (body.context?.analysis_context) {
+    prompt += `\nWorkspace analysis follow-up context. Stay focused on this concrete question and do not invent dates or tasks:\n${JSON.stringify(body.context.analysis_context)}\n`;
+  }
+  if (body.context?.memory_context && body.context.memory_context.length > 0) {
+    prompt += `\nRelevant confirmed workspace memory:\n${body.context.memory_context.map((item) => `- ${item.title}: ${item.content}`).join("\n")}\n`;
   }
   if (body.options) {
     const parts: string[] = [];

@@ -53,6 +53,8 @@ export type Profile = {
   total_cards_learned: number;
   role: 'user' | 'admin';
   created_at: string;
+  app_language: 'de' | 'en';
+  learning_language: string;
 };
 
 export type AppSettings = {
@@ -100,6 +102,20 @@ export type WorkspaceAnalysisRecord = {
   topics: { name: string; details: string; source_names: string[] }[];
   pending_tasks: LearningTaskDraft[];
   uncertainties: string[];
+  open_questions: { id: string; question: string; suggestions: string[]; status?: 'open' | 'deferred' | 'answered'; answer?: string }[];
+  updated_at: string;
+};
+
+export type WorkspaceMemory = {
+  id: string;
+  user_id: string;
+  workspace_key: string;
+  memory_type: 'summary' | 'topic' | 'task' | 'exam' | 'confirmed_answer' | 'uncertainty';
+  stable_key: string;
+  title: string;
+  content: Record<string, unknown>;
+  source: string;
+  created_at: string;
   updated_at: string;
 };
 
