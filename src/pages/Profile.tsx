@@ -31,9 +31,9 @@ export function Profile({ onNavigate }: { onNavigate?: (page: 'admin') => void }
   ];
 
   return (
-    <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6 lg:px-8">
+    <div className="relative mx-auto max-w-7xl animate-fade-in overflow-hidden px-4 py-10 sm:px-6 lg:px-8 lg:py-12">
       {/* Profile header */}
-      <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-6 sm:p-8">
+      <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-cyan-500/10 to-blue-600/10 p-6 sm:p-8">
         <div className="flex flex-col items-center gap-4 sm:flex-row sm:items-start">
           <div className="flex h-20 w-20 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-cyan-400 to-blue-600 text-3xl font-bold text-white shadow-lg shadow-cyan-500/20">
             {(profile?.display_name || user.email || '?').charAt(0).toUpperCase()}
