@@ -4,14 +4,13 @@ import { Navbar } from '@/components/Navbar';
 import { AuthModal } from '@/components/AuthModal';
 import { Landing } from '@/pages/Landing';
 import { Dashboard } from '@/pages/Dashboard';
-import { Explore } from '@/pages/Explore';
 import { CreateSet } from '@/pages/CreateSet';
 import { StudySetView } from '@/pages/StudySetView';
 import { Profile } from '@/pages/Profile';
 import { AdminPage } from '@/pages/AdminPage';
 import { LearningWorkspace } from '@/pages/LearningWorkspace';
 
-type Page = 'home' | 'workspace' | 'dashboard' | 'explore' | 'create' | 'study' | 'profile' | 'admin';
+type Page = 'home' | 'workspace' | 'dashboard' | 'create' | 'study' | 'profile' | 'admin';
 
 function AppContent() {
   const { user, isAdmin, loading } = useAuth();
@@ -87,7 +86,6 @@ function AppContent() {
                 setAuthOpen(true);
               }
             }}
-            onExplore={() => setPage('explore')}
           />
         )}
 
@@ -106,10 +104,6 @@ function AppContent() {
           />
         )}
 
-        {page === 'explore' && (
-          <Explore onOpenSet={handleOpenSet} />
-        )}
-
         {page === 'create' && user && (
           <CreateSet
             onCreated={handleCreated}
@@ -119,7 +113,7 @@ function AppContent() {
         {page === 'study' && currentSetId && (
           <StudySetView
             setId={currentSetId}
-            onBack={() => { setCurrentSetId(null); setPage(user ? 'dashboard' : 'explore'); }}
+            onBack={() => { setCurrentSetId(null); setPage(user ? 'workspace' : 'home'); }}
           />
         )}
 

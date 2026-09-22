@@ -5,7 +5,7 @@ import { useAuth } from '@/lib/auth-context';
 import { SetCard } from '@/components/SetCard';
 
 type Props = {
-  onNavigate: (page: 'create' | 'study' | 'explore') => void;
+  onNavigate: (page: 'create' | 'study') => void;
   onOpenSet: (setId: string) => void;
 };
 

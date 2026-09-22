@@ -3,7 +3,7 @@ import { Compass, User as UserIcon, Menu, X, LogOut, Shield, Brain } from 'lucid
 import { useAuth } from '@/lib/auth-context';
 import { Logo } from './Logo';
 
-type Page = 'home' | 'workspace' | 'dashboard' | 'explore' | 'create' | 'study' | 'profile' | 'admin';
+type Page = 'home' | 'workspace' | 'dashboard' | 'create' | 'study' | 'profile' | 'admin';
 
 type Props = {
   currentPage: Page;

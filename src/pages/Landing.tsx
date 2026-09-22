@@ -4,10 +4,9 @@ import { Logo } from '@/components/Logo';
 
 type Props = {
   onGetStarted: () => void;
-  onExplore: () => void;
 };
 
-export function Landing({ onGetStarted, onExplore }: Props) {
+export function Landing({ onGetStarted }: Props) {
   const [pricingOpen, setPricingOpen] = useState(false);
   const features = [
     {
