@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { Compass, User as UserIcon, Menu, X, LogOut, Shield, Brain, ChevronDown, Settings2 } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import { Logo } from './Logo';
-import { t } from '@/lib/i18n';
 
 type Page = 'home' | 'workspace' | 'dashboard' | 'create' | 'study' | 'profile' | 'admin';
 
@@ -18,7 +17,7 @@ export function Navbar({ currentPage, onNavigate, onSignIn }: Props) {
   const [profileOpen, setProfileOpen] = useState(false);
 
   const navItems: { key: Page; label: string; icon: typeof Compass }[] = [
-    { key: 'workspace', label: t(profile?.app_language, 'workspace'), icon: Brain },
+    { key: 'workspace', label: 'Workspace', icon: Brain },
     ...(user && isAdmin ? [{ key: 'admin', label: 'Admin', icon: Shield }] as { key: Page; label: string; icon: typeof Compass }[] : []),
   ];
 
@@ -64,10 +63,10 @@ export function Navbar({ currentPage, onNavigate, onSignIn }: Props) {
                   <ChevronDown size={15} className={`transition-transform ${profileOpen ? 'rotate-180' : ''}`} />
                 </button>
                 {profileOpen && <div className="absolute right-0 top-full z-50 mt-2 w-56 rounded-xl border border-white/10 bg-[#15151f] p-2 shadow-2xl shadow-black/40">
-                  <button onClick={() => handleNav('profile')} className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm text-gray-200 hover:bg-white/10"><Settings2 size={16} className="text-cyan-300" /><span><b className="block">{t(profile?.app_language, 'profile')}</b><small className="text-xs text-gray-500">Name, Lernserie und Konto</small></span></button>
+                  <button onClick={() => handleNav('profile')} className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm text-gray-200 hover:bg-white/10"><Settings2 size={16} className="text-cyan-300" /><span><b className="block">Profil & Fortschritt</b><small className="text-xs text-gray-500">Name, Lernserie und Konto</small></span></button>
                   {isAdmin && <button onClick={() => handleNav('admin')} className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm text-gray-200 hover:bg-white/10"><Shield size={16} className="text-violet-300" />Admin-Bereich</button>}
                   <div className="my-1 border-t border-white/10" />
-                  <button onClick={() => { void signOut(); setProfileOpen(false); }} className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm text-gray-300 hover:bg-red-500/10 hover:text-red-200"><LogOut size={16} />{t(profile?.app_language, 'signOut')}</button>
+                  <button onClick={() => { void signOut(); setProfileOpen(false); }} className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm text-gray-300 hover:bg-red-500/10 hover:text-red-200"><LogOut size={16} />Abmelden</button>
                 </div>}
               </div>
             </div>

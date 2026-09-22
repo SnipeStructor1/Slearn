@@ -15,7 +15,7 @@ type Props = {
 type Step = 'input' | 'preview';
 
 export function CreateSet({ onCreated }: Props) {
-  const { user, profile } = useAuth();
+  const { user } = useAuth();
   const [step, setStep] = useState<Step>('input');
   const [inputMode, setInputMode] = useState<'topic' | 'text' | 'image'>('topic');
   const [topic, setTopic] = useState('');
@@ -76,7 +76,7 @@ export function CreateSet({ onCreated }: Props) {
       }
 
       setSourceContent(input);
-      const result = await generateFlashcards(input, { app_language: profile?.app_language || 'de', learning_language: profile?.learning_language || 'de' }, 20);
+      const result = await generateFlashcards(input, undefined, 20);
       if (!result.success) {
         setError(result.error);
         setLoading(false);
