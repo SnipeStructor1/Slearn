@@ -55,6 +55,7 @@ export function LearningWorkspace({ onNavigate, initialTab = 'notes', initialSet
   const [questionAnswers, setQuestionAnswers] = useState<Record<string, string>>({});
   const [questionLoading, setQuestionLoading] = useState<Record<string, boolean>>({});
   const [questionErrors, setQuestionErrors] = useState<Record<string, string>>({});
+  const [savedQuestionAnswers, setSavedQuestionAnswers] = useState<Record<string, boolean>>({});
   const [messages, setMessages] = useState<ChatMessage[]>([
     { id: 'welcome', role: 'assistant', text: 'Ich bin bereit. Lade Lernmaterial hoch oder stelle mir eine Frage zu deinen Notizen.' },
   ]);
@@ -74,7 +75,7 @@ export function LearningWorkspace({ onNavigate, initialTab = 'notes', initialSet
         supabase.from('workspace_analysis').select('*').eq('user_id', user.id).maybeSingle(),
         supabase.from('study_sets').select('*').eq('user_id', user.id).order('created_at', { ascending: false }),
         supabase.from('workspace_memory').select('*').eq('user_id', user.id).eq('workspace_key', WORKSPACE_KEY).order('updated_at', { ascending: false }),
-        supabase.from('ai_conversations').select('messages').eq('user_id', user.id).eq('workspace_key', WORKSPACE_KEY).maybeSingle(),
+        supabase.from('ai_conversations').select('messages,conversation_id,question_id').eq('user_id', user.id).eq('workspace_key', WORKSPACE_KEY),
       ]);
       if (noteResult.error || filesResult.error || analysisResult.error || setsResult.error || memoryResult.error || conversationResult.error) {
         setError(userError(noteResult.error || filesResult.error || analysisResult.error || setsResult.error || memoryResult.error || conversationResult.error, 'Der Workspace ist gerade im Ladechaos – bitte versuch es gleich nochmal.'));
@@ -86,20 +87,27 @@ export function LearningWorkspace({ onNavigate, initialTab = 'notes', initialSet
       setFiles((filesResult.data as StoredWorkspaceFile[]) || []);
       setSets((setsResult.data as StudySet[]) || []);
       setMemory((memoryResult.data as WorkspaceMemory[]) || []);
-      const storedMessages = conversationResult.data?.messages;
-      if (Array.isArray(storedMessages)) {
-        const restored = storedMessages.filter((message): message is { role: 'assistant' | 'user'; content: string; questionId?: string } =>
+      setSavedQuestionAnswers(Object.fromEntries(
+        ((memoryResult.data as WorkspaceMemory[]) || [])
+          .filter((item) => item.memory_type === 'confirmed_answer' && item.stable_key.startsWith('analysis:answer:'))
+          .map((item) => [item.stable_key.slice('analysis:answer:'.length), true]),
+      ));
+      const storedRows = conversationResult.data || [];
+      const restored = storedRows.flatMap((row) => {
+        const storedMessages = row.messages;
+        if (!Array.isArray(storedMessages)) return [];
+        return storedMessages.filter((message): message is { role: 'assistant' | 'user'; content: string; questionId?: string } =>
           typeof message === 'object' && message !== null &&
           ((message as { role?: string }).role === 'assistant' || (message as { role?: string }).role === 'user') &&
           typeof (message as { content?: unknown }).content === 'string',
         ).map((message, index) => ({
-          id: `stored-${index}`,
+          id: `stored-${row.conversation_id || 'general'}-${index}`,
           role: message.role,
           text: message.content,
-          questionId: typeof message.questionId === 'string' ? message.questionId : undefined,
+          questionId: typeof message.questionId === 'string' ? message.questionId : row.question_id || undefined,
         }));
-        if (restored.length) setMessages(restored);
-      }
+      });
+      if (restored.length) setMessages(restored);
       setChatLoading(false);
       setMemoryLoading(false);
       if (analysisResult.data) {
@@ -115,14 +123,16 @@ export function LearningWorkspace({ onNavigate, initialTab = 'notes', initialSet
     })();
   }, [user]);
 
-  const saveConversation = async (nextMessages: ChatMessage[]) => {
+  const saveConversation = async (nextMessages: ChatMessage[], conversationId = 'general', questionId?: string) => {
     if (!user) return;
     const { error: saveError } = await supabase.from('ai_conversations').upsert({
       user_id: user.id,
       workspace_key: WORKSPACE_KEY,
+      conversation_id: conversationId,
+      question_id: questionId || null,
       messages: nextMessages.map(({ role, text, questionId }) => ({ role, content: text, questionId, timestamp: new Date().toISOString() })),
       updated_at: new Date().toISOString(),
-    }, { onConflict: 'user_id,workspace_key' });
+    }, { onConflict: 'user_id,workspace_key,conversation_id' });
     if (saveError) setChatError(`Chat konnte nicht dauerhaft gespeichert werden: ${userError(saveError)}`);
   };
 
@@ -272,34 +282,29 @@ export function LearningWorkspace({ onNavigate, initialTab = 'notes', initialSet
     setAnalyzing(false);
   };
 
-  const persistQuestionState = async (questionId: string, answer: string | null, aiReply?: string) => {
-    if (!user || !analysis) return;
+  const persistConfirmedAnswer = async (questionId: string) => {
+    if (!user || !analysis || savedQuestionAnswers[questionId]) return;
     const question = analysis.open_questions.find((item) => item.id === questionId);
-    if (!question) return;
-    const nextQuestions = analysis.open_questions.map((item) => item.id === questionId
-      ? { ...item, status: answer ? 'answered' as const : 'deferred' as const, ...(answer ? { answer } : {}) }
-      : item);
-    const { error: updateError } = await supabase.from('workspace_analysis').update({ open_questions: nextQuestions, uncertainties: nextQuestions.filter((item) => item.status !== 'answered').map((item) => item.question), updated_at: new Date().toISOString() }).eq('user_id', user.id);
-    if (updateError) {
-      setError(`Rückfrage konnte nicht gespeichert werden: ${userError(updateError)}`);
+    const thread = messages.filter((message) => message.questionId === questionId);
+    const answer = [...thread].reverse().find((message) => message.role === 'user');
+    const aiReply = [...thread].reverse().find((message) => message.role === 'assistant');
+    if (!question || !answer) return;
+    const { data, error: memoryError } = await supabase.from('workspace_memory').upsert({
+      user_id: user.id, workspace_key: WORKSPACE_KEY, memory_type: 'confirmed_answer',
+      stable_key: `analysis:answer:${question.id}`, title: question.question,
+      content: { question: question.question, answer: answer.text, ...(aiReply ? { ai_response: aiReply.text } : {}) }, source: 'Workspace-Rückfrage',
+    }, { onConflict: 'user_id,workspace_key,stable_key' }).select().single();
+    if (memoryError) {
+      setQuestionErrors((current) => ({ ...current, [questionId]: `Antwort konnte nicht gespeichert werden: ${userError(memoryError)}` }));
       return;
     }
-    if (answer) {
-      const { data, error: memoryError } = await supabase.from('workspace_memory').upsert({
-        user_id: user.id, workspace_key: WORKSPACE_KEY, memory_type: 'confirmed_answer',
-        stable_key: `analysis:answer:${question.id}`, title: question.question,
-        content: { question: question.question, answer, ...(aiReply ? { ai_response: aiReply } : {}) }, source: 'Workspace-Rückfrage',
-      }, { onConflict: 'user_id,workspace_key,stable_key' }).select().single();
-      if (memoryError) setError(`Antwort gespeichert, aber Memory konnte nicht aktualisiert werden: ${userError(memoryError)}`);
-      else if (data) setMemory((current) => [data as WorkspaceMemory, ...current.filter((item) => item.id !== data.id)]);
-    }
-    setAnalysis({ ...analysis, open_questions: nextQuestions, uncertainties: nextQuestions.filter((item) => item.status !== 'answered').map((item) => item.question) });
+    if (data) setMemory((current) => [data as WorkspaceMemory, ...current.filter((item) => item.id !== data.id)]);
+    setSavedQuestionAnswers((current) => ({ ...current, [questionId]: true }));
   };
 
   const answerOpenQuestion = async (questionId: string, answer: string | null) => {
     if (!user || !analysis) return;
     if (!answer) {
-      await persistQuestionState(questionId, null);
       return;
     }
     const question = analysis.open_questions.find((item) => item.id === questionId);
@@ -338,8 +343,7 @@ export function LearningWorkspace({ onNavigate, initialTab = 'notes', initialSet
     const assistantMessage: ChatMessage = { id: crypto.randomUUID(), role: 'assistant', text: result.data.reply, questionId };
     const completedMessages = [...nextMessages, assistantMessage];
     setMessages(completedMessages);
-    await saveConversation(completedMessages);
-    await persistQuestionState(questionId, answer, result.data.reply);
+    await saveConversation(completedMessages.filter((message) => message.questionId === questionId), `question:${questionId}`, questionId);
     setQuestionLoading((current) => ({ ...current, [questionId]: false }));
   };
 
@@ -635,11 +639,11 @@ export function LearningWorkspace({ onNavigate, initialTab = 'notes', initialSet
               const thread = messages.filter((message) => message.questionId === item.id);
               const answer = questionAnswers[item.id] || '';
               const loading = questionLoading[item.id];
-              const isAnswered = item.status === 'answered';
+              const isSaved = savedQuestionAnswers[item.id];
               return <article key={item.id} className="rounded-xl border border-white/10 bg-black/10 p-3">
-                <div className="flex items-start justify-between gap-3"><p className="text-sm text-amber-50">{item.question}</p>{isAnswered && <span className="shrink-0 rounded-full bg-emerald-400/10 px-2 py-1 text-[10px] text-emerald-200">Geklärt</span>}{item.status === 'deferred' && <span className="shrink-0 rounded-full bg-white/10 px-2 py-1 text-[10px] text-gray-300">Später klären</span>}</div>
+                <div className="flex items-start justify-between gap-3"><p className="text-sm text-amber-50">{item.question}</p>{isSaved && <span className="shrink-0 rounded-full bg-emerald-400/10 px-2 py-1 text-[10px] text-emerald-200">Als Fakt gespeichert</span>}{!isSaved && thread.some((message) => message.role === 'assistant') && <span className="shrink-0 rounded-full bg-cyan-400/10 px-2 py-1 text-[10px] text-cyan-200">Nur Chat-Kontext</span>}</div>
                 {thread.length > 0 && <div className="mt-3 max-h-48 space-y-2 overflow-y-auto rounded-lg bg-black/20 p-2">{thread.map((message) => <div key={message.id} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}><p className={`max-w-[90%] rounded-lg px-2.5 py-2 text-xs ${message.role === 'user' ? 'bg-cyan-500/20 text-cyan-100' : 'bg-white/[0.05] text-gray-300'}`}>{message.text}</p></div>)}</div>}
-                {!isAnswered && <><div className="mt-3 grid gap-2">{item.suggestions.slice(0, 3).map((suggestion) => <button key={suggestion} onClick={() => void answerOpenQuestion(item.id, suggestion)} disabled={loading} className="rounded-lg border border-cyan-400/20 bg-cyan-500/10 px-3 py-2 text-left text-xs text-cyan-100 hover:bg-cyan-500/20 disabled:opacity-50">{suggestion}</button>)}</div><div className="mt-2 flex gap-2"><input value={answer} onChange={(event) => setQuestionAnswers((current) => ({ ...current, [item.id]: event.target.value }))} onKeyDown={(event) => { if (event.key === 'Enter' && answer.trim()) void answerOpenQuestion(item.id, answer.trim()); }} placeholder={t(profile?.app_language, 'answer')} disabled={loading} className="min-w-0 flex-1 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs text-white placeholder:text-gray-600" /><button onClick={() => void answerOpenQuestion(item.id, answer.trim() || null)} disabled={loading} className="rounded-lg bg-cyan-500 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">{loading ? <Loader2 size={14} className="animate-spin" /> : answer.trim() ? <Send size={14} /> : t(profile?.app_language, 'later')}</button></div>{questionErrors[item.id] && <p className="mt-2 rounded-lg border border-red-400/20 bg-red-500/10 px-2.5 py-2 text-xs text-red-300">{questionErrors[item.id]}</p>}</>}
+                <><div className="mt-3 grid gap-2">{item.suggestions.slice(0, 3).map((suggestion) => <button key={suggestion} onClick={() => void answerOpenQuestion(item.id, suggestion)} disabled={loading} className="rounded-lg border border-cyan-400/20 bg-cyan-500/10 px-3 py-2 text-left text-xs text-cyan-100 hover:bg-cyan-500/20 disabled:opacity-50">{suggestion}</button>)}</div><div className="mt-2 flex gap-2"><input value={answer} onChange={(event) => setQuestionAnswers((current) => ({ ...current, [item.id]: event.target.value }))} onKeyDown={(event) => { if (event.key === 'Enter' && answer.trim()) void answerOpenQuestion(item.id, answer.trim()); }} placeholder={t(profile?.app_language, 'answer')} disabled={loading} className="min-w-0 flex-1 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs text-white placeholder:text-gray-600" /><button onClick={() => void answerOpenQuestion(item.id, answer.trim() || null)} disabled={loading} className="rounded-lg bg-cyan-500 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">{loading ? <Loader2 size={14} className="animate-spin" /> : answer.trim() ? <Send size={14} /> : t(profile?.app_language, 'later')}</button></div>{thread.some((message) => message.role === 'assistant') && !isSaved && <button onClick={() => void persistConfirmedAnswer(item.id)} disabled={loading} className="mt-2 rounded-lg border border-emerald-400/30 px-3 py-1.5 text-left text-xs font-semibold text-emerald-200 hover:bg-emerald-400/10 disabled:opacity-50">Best�tigen und als Fakt speichern</button>}{questionErrors[item.id] && <p className="mt-2 rounded-lg border border-red-400/20 bg-red-500/10 px-2.5 py-2 text-xs text-red-300">{questionErrors[item.id]}</p>}</>}
               </article>;
             })}</div></div>}
           </div>
