@@ -220,56 +220,16 @@ function validateRequestBody(value: unknown): RequestBody {
 // --- Response schemas (validated server-side) ---
 
 function validateFlashcards(data: unknown): { title: string; description: string; subject: string; summary: string[]; cards: { front: string; back: string }[] } {
-  if (typeof data !== "object" || data === null) throw new Error("Invalid flashcard response");
-  const d = data as Record<string, unknown>;
+  if (!isRecord(data)) throw new Error("Invalid flashcard response");
+  const d = data;
   if (typeof d.title !== "string" || !d.title) throw new Error("Missing title");
   if (typeof d.description !== "string") throw new Error("Missing description");
   if (typeof d.subject !== "string") throw new Error("Missing subject");
   if (!Array.isArray(d.summary)) throw new Error("Missing summary array");
   if (!Array.isArray(d.cards) || d.cards.length === 0) throw new Error("Missing cards array");
   for (const c of d.cards) {
-    if (typeof c !== "object" || c === null) throw new Error("Invalid card");
-    const card = c as Record<string, unknown>;
-    if (typeof card.front !== "string" || typeof card.back !== "string") throw new Error("Invalid card shape");
-  }
-
-  function validateWorkspaceAnalysis(data: unknown): {
-    context_summary: string;
-    topics: { name: string; details: string; source_names: string[] }[];
-    tasks: { title: string; description: string; subject: string; task_type: "assignment" | "exam"; due_date: string | null; estimated_hours: number | null; confidence: number }[];
-    uncertainties: string[];
-  } {
-    if (!isRecord(data) || typeof data.context_summary !== "string" || !Array.isArray(data.topics) ||
-        !Array.isArray(data.tasks) || !Array.isArray(data.uncertainties)) {
-      throw new Error("Invalid workspace analysis response");
-    }
-    const topics = data.topics.map((topic) => {
-      if (!isRecord(topic) || typeof topic.name !== "string" || typeof topic.details !== "string" ||
-          !Array.isArray(topic.source_names) || topic.source_names.some((name) => typeof name !== "string")) {
-        throw new Error("Invalid workspace topic");
-      }
-      return { name: topic.name, details: topic.details, source_names: topic.source_names as string[] };
-    });
-    const tasks = data.tasks.map((task) => {
-      if (!isRecord(task) || typeof task.title !== "string" || typeof task.description !== "string" ||
-          typeof task.subject !== "string" || (task.task_type !== "assignment" && task.task_type !== "exam") ||
-          (task.due_date !== null && (typeof task.due_date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(task.due_date))) ||
-          (task.estimated_hours !== null && (typeof task.estimated_hours !== "number" || task.estimated_hours < 0 || task.estimated_hours > 999)) ||
-          typeof task.confidence !== "number" || task.confidence < 0 || task.confidence > 1) {
-        throw new Error("Invalid workspace task");
-      }
-      return {
-        title: task.title,
-        description: task.description,
-        subject: task.subject,
-        task_type: task.task_type,
-        due_date: task.due_date,
-        estimated_hours: task.estimated_hours,
-        confidence: task.confidence,
-      };
-    });
-    if (data.uncertainties.some((item) => typeof item !== "string")) throw new Error("Invalid workspace uncertainties");
-    return { context_summary: data.context_summary, topics, tasks, uncertainties: data.uncertainties as string[] };
+    if (!isRecord(c)) throw new Error("Invalid card");
+    if (typeof c.front !== "string" || typeof c.back !== "string") throw new Error("Invalid card shape");
   }
   return {
     title: d.title,
@@ -277,6 +237,80 @@ function validateFlashcards(data: unknown): { title: string; description: string
     subject: d.subject,
     summary: d.summary as string[],
     cards: d.cards as { front: string; back: string }[],
+  };
+}
+
+function validateWorkspaceAnalysis(data: unknown): {
+  context_summary: string;
+  topics: { name: string; details: string; source_names: string[] }[];
+  tasks: { title: string; description: string; subject: string; task_type: "assignment" | "exam"; due_date: string | null; estimated_hours: number | null; confidence: number }[];
+  uncertainties: string[];
+} {
+  if (!isRecord(data)) throw new Error("Invalid workspace analysis response");
+
+  const analysisString = (value: unknown, field: string, maxLength: number): string => {
+    if (typeof value !== "string" || value.trim().length === 0 || value.length > maxLength) {
+      throw new Error(`${field} must be a non-empty string of at most ${maxLength} characters`);
+    }
+    return value;
+  };
+  const analysisStringArray = (value: unknown, field: string, maxItems: number, maxLength: number): string[] => {
+    if (!Array.isArray(value) || value.length > maxItems) throw new Error(`${field} must be an array of at most ${maxItems} strings`);
+    return value.map((item, index) => analysisString(item, `${field}[${index}]`, maxLength));
+  };
+  const validDate = (value: unknown, field: string): string | null => {
+    if (value === null) return null;
+    if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      throw new Error(`${field} must be a YYYY-MM-DD date or null`);
+    }
+    const [year, month, day] = value.split("-").map(Number);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) {
+      throw new Error(`${field} is not a valid calendar date`);
+    }
+    return value;
+  };
+
+  if (!Array.isArray(data.topics) || data.topics.length > MAX_FILES) throw new Error(`topics must contain at most ${MAX_FILES} items`);
+  if (!Array.isArray(data.tasks) || data.tasks.length > MAX_TASKS) throw new Error(`tasks must contain at most ${MAX_TASKS} items`);
+  const topics = data.topics.map((topic, index) => {
+    if (!isRecord(topic)) throw new Error(`topics[${index}] must be an object`);
+    return {
+      name: analysisString(topic.name, `topics[${index}].name`, MAX_TASK_FIELD_LENGTH),
+      details: analysisString(topic.details, `topics[${index}].details`, MAX_FILE_CONTENT_LENGTH),
+      source_names: analysisStringArray(topic.source_names, `topics[${index}].source_names`, MAX_FILES, MAX_FILE_NAME_LENGTH),
+    };
+  });
+  const tasks = data.tasks.map((task, index) => {
+    if (!isRecord(task)) throw new Error(`tasks[${index}] must be an object`);
+    if (task.task_type !== "assignment" && task.task_type !== "exam") {
+      throw new Error(`tasks[${index}].task_type is invalid`);
+    }
+    if (task.estimated_hours !== null && (typeof task.estimated_hours !== "number" ||
+        !Number.isFinite(task.estimated_hours) || task.estimated_hours < 0 || task.estimated_hours > 999)) {
+      throw new Error(`tasks[${index}].estimated_hours is invalid`);
+    }
+    if (typeof task.confidence !== "number" || !Number.isFinite(task.confidence) ||
+        task.confidence < 0 || task.confidence > 1) {
+      throw new Error(`tasks[${index}].confidence must be a number between 0 and 1`);
+    }
+    return {
+      title: analysisString(task.title, `tasks[${index}].title`, MAX_TASK_FIELD_LENGTH),
+      description: typeof task.description === "string" && task.description.length <= MAX_TASK_FIELD_LENGTH
+        ? task.description
+        : (() => { throw new Error(`tasks[${index}].description must be a string of at most ${MAX_TASK_FIELD_LENGTH} characters`); })(),
+      subject: analysisString(task.subject, `tasks[${index}].subject`, 200),
+      task_type: task.task_type,
+      due_date: validDate(task.due_date, `tasks[${index}].due_date`),
+      estimated_hours: task.estimated_hours,
+      confidence: task.confidence,
+    };
+  });
+  return {
+    context_summary: analysisString(data.context_summary, "context_summary", MAX_NOTES_LENGTH),
+    topics,
+    tasks,
+    uncertainties: analysisStringArray(data.uncertainties, "uncertainties", MAX_TASKS, MAX_TASK_FIELD_LENGTH),
   };
 }
 
