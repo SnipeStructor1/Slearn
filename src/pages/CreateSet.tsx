@@ -384,7 +384,7 @@ export function CreateSet({ onCreated }: Props) {
             <div className="rounded-xl border-2 border-dashed border-white/10 bg-white/[0.02] p-12 text-center">
               <ImageIcon size={40} className="mx-auto text-gray-600" />
               <p className="mt-3 text-sm text-gray-400">Drag & drop or click to upload</p>
-              <p className="text-xs text-gray-500">PDF oder Text-PDF — auslesbarer Text wird an die KI übergeben</p>
+              <p className="text-xs text-gray-500">PDF (auch gescannt) und Fotos — Text wird per OCR ausgelesen und an die KI übergeben</p>
               <input
                 ref={fileInputRef}
                 type="file"
@@ -402,9 +402,9 @@ export function CreateSet({ onCreated }: Props) {
                 onClick={() => fileInputRef.current?.click()}
                 className="mt-3 rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-3 py-2 text-xs text-cyan-200 hover:bg-cyan-500/20"
               >
-                {sourceFile ? `Ausgewählt: ${sourceFile.name}` : 'PDF auswählen'}
+                {sourceFile ? `Ausgewählt: ${sourceFile.name}` : 'PDF oder Foto auswählen'}
               </button>
-              <p className="mt-2 text-xs text-amber-300/80">Fotos werden erst nach verfügbarer OCR unterstützt. Es wird kein leerer Bildkontext gesendet.</p>
+              <p className="mt-2 text-xs text-gray-500">OCR läuft direkt im Browser — der Text wird automatisch erkannt.</p>
               <div className="mt-4">
                 <textarea
                   value={text}

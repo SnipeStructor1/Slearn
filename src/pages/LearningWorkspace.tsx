@@ -89,10 +89,6 @@ export function LearningWorkspace({ onNavigate, initialTab = 'notes', initialSet
         setError(`${file.name}: Nur PDF-, Foto- oder Textdateien bis 10 MB werden akzeptiert.`);
         continue;
       }
-      if (isImage) {
-        setError(`${file.name}: Foto-OCR ist in dieser Umgebung nicht verfügbar. Die Datei wird nicht als KI-Kontext verwendet.`);
-        continue;
-      }
       const extraction = await extractFileText(file);
       const extractedText = extraction.status === 'text_extracted' ? extraction.text : '';
       const extractionStatus = extraction.status;
