@@ -18,6 +18,7 @@ function AppContent() {
   const [page, setPage] = useState<Page>('home');
   const [authOpen, setAuthOpen] = useState(false);
   const [currentSetId, setCurrentSetId] = useState<string | null>(null);
+  const [workspaceTab, setWorkspaceTab] = useState<'notes' | 'flashcards'>('notes');
 
   // Redirect to dashboard when user signs in
   useEffect(() => {
@@ -46,12 +47,18 @@ function AppContent() {
 
   const handleOpenSet = (setId: string) => {
     setCurrentSetId(setId);
-    setPage('study');
+    if (user) {
+      setWorkspaceTab('flashcards');
+      setPage('workspace');
+    } else {
+      setPage('study');
+    }
   };
 
   const handleCreated = (setId: string) => {
     setCurrentSetId(setId);
-    setPage('study');
+    setWorkspaceTab('flashcards');
+    setPage('workspace');
   };
 
   if (loading) {
@@ -92,7 +99,11 @@ function AppContent() {
         )}
 
         {page === 'workspace' && user && (
-          <LearningWorkspace onNavigate={(target) => handleNavigate(target)} />
+          <LearningWorkspace
+            initialTab={workspaceTab}
+            initialSetId={currentSetId}
+            onNavigate={(target) => handleNavigate(target)}
+          />
         )}
 
         {page === 'explore' && (
@@ -102,7 +113,6 @@ function AppContent() {
         {page === 'create' && user && (
           <CreateSet
             onCreated={handleCreated}
-            onNavigate={() => setPage('dashboard')}
           />
         )}
 
