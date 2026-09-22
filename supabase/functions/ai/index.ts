@@ -525,9 +525,9 @@ Deno.serve(async (req: Request) => {
     );
   } catch (err) {
     if (err instanceof AIProviderError) {
-      return jsonError(err.message, err.status);
+      return jsonError("AI provider request failed", err.status);
     }
-    return jsonError(`Internal error: ${(err as Error).message}`, 500);
+    return jsonError("AI request could not be processed", 500);
   }
 });
 

@@ -3,11 +3,12 @@ import type {
   AIAction, AIContext, AIOptions, AIResult,
   GeneratedSet, GeneratedQuiz, GeneratedStudyPlan, GeneratedSummary, TutorResponse, WorkspaceAnalysis,
 } from '@/lib/types';
+import { userError } from '@/lib/error-text';
 
 async function callAI<T>(action: AIAction, input: string, context?: AIContext, options?: AIOptions): Promise<AIResult<T>> {
   const { data: sessionData } = await supabase.auth.getSession();
   const accessToken = sessionData?.session?.access_token;
-  if (!accessToken) return { success: false, error: 'Not authenticated' };
+  if (!accessToken) return { success: false, error: userError('Not authenticated') };
 
   try {
     const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai`, {
@@ -20,10 +21,10 @@ async function callAI<T>(action: AIAction, input: string, context?: AIContext, o
       body: JSON.stringify({ action, input, context, options }),
     });
     const json = await response.json() as { success?: boolean; data?: T; error?: string; tokens_used?: number };
-    if (!response.ok || !json.success) return { success: false, error: json.error || 'AI request failed' };
+    if (!response.ok || !json.success) return { success: false, error: userError({ message: json.error, status: response.status }) };
     return { success: true, data: json.data as T, tokens_used: json.tokens_used || 0 };
   } catch {
-    return { success: false, error: 'Unable to reach the AI service' };
+    return { success: false, error: userError('Unable to reach the AI service') };
   }
 }
 
