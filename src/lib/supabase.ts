@@ -53,6 +53,8 @@ export type Profile = {
   total_cards_learned: number;
   role: 'user' | 'admin';
   created_at: string;
+  app_language: 'de' | 'en';
+  learning_language: string;
 };
 
 export type AppSettings = {
@@ -100,6 +102,7 @@ export type WorkspaceAnalysisRecord = {
   topics: { name: string; details: string; source_names: string[] }[];
   pending_tasks: LearningTaskDraft[];
   uncertainties: string[];
+  open_questions: { id: string; question: string; suggestions: string[]; status?: 'open' | 'deferred' | 'answered'; answer?: string }[];
   updated_at: string;
 };
 

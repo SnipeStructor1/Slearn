@@ -17,7 +17,7 @@ const emptyForm = {
 };
 
 export function LearningPlanner({ hasAnalyzedMaterial }: { hasAnalyzedMaterial: boolean }) {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [tasks, setTasks] = useState<LearningTask[]>([]);
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -127,7 +127,7 @@ export function LearningPlanner({ hasAnalyzedMaterial }: { hasAnalyzedMaterial: 
     setError(null);
     const result = await generateStudyPlan(
       'Erstelle meinen persönlichen Lernplan aus diesen offenen Aufgaben und Prüfungen. Plane konkrete, realistische Lerneinheiten bis zu den jeweiligen Fälligkeiten.',
-      { tasks: openTasks },
+      { tasks: openTasks, app_language: profile?.app_language || 'de', learning_language: profile?.learning_language || 'de' },
       undefined,
       'Alle offenen Aufgaben rechtzeitig und mit kurzen, konkreten Lerneinheiten vorbereiten',
     );

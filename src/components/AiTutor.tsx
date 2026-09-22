@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { X, Send, Sparkles, Loader2, Lightbulb } from 'lucide-react';
 import { homeworkHelp, tutorChat } from '@/lib/ai-client';
+import { useAuth } from '@/lib/auth-context';
 
 type Message = {
   role: 'user' | 'assistant';
@@ -58,6 +59,7 @@ function generateResponse(question: string, context?: { front: string; back: str
 }
 
 export function AiTutor({ open, onClose, cardContext }: Props) {
+  const { profile } = useAuth();
   const [messages, setMessages] = useState<Message[]>([
     {
       role: 'assistant',
@@ -94,7 +96,7 @@ export function AiTutor({ open, onClose, cardContext }: Props) {
     setInput('');
     setThinking(true);
 
-    const context = cardContext ? { flashcards: [cardContext] } : undefined;
+    const context = { ...(cardContext ? { flashcards: [cardContext] } : {}), app_language: profile?.app_language || 'de', learning_language: profile?.learning_language || 'de' };
     const result = /homework|hausaufgabe|aufgabe/i.test(userMsg.content)
       ? await homeworkHelp(userMsg.content, context)
       : await tutorChat(userMsg.content, context);

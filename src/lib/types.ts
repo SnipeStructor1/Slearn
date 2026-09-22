@@ -67,6 +67,19 @@ export type WorkspaceAnalysis = {
     confidence: number;
   }[];
   uncertainties: string[];
+  open_questions: {
+    id: string;
+    question: string;
+    suggestions: string[];
+  }[];
+  language_learning?: {
+    topic_type: 'language_learning';
+    target_language: string;
+    source_language: string | null;
+    vocabulary: { term: string; translation: string; notes?: string }[];
+    grammar: string[];
+    goals: string[];
+  } | null;
 };
 
 export type TutorResponse = {
@@ -75,6 +88,8 @@ export type TutorResponse = {
 };
 
 export type AIContext = {
+  app_language?: 'de' | 'en';
+  learning_language?: string;
   notes?: string;
   files?: { name: string; content?: string }[];
   flashcards?: { front: string; back: string }[];

@@ -11,6 +11,7 @@ import type { WorkspaceAnalysis } from '@/lib/types';
 import { extractFileText } from '@/lib/file-extraction';
 import { userError } from '@/lib/error-text';
 import { StudySetView } from './StudySetView';
+import { t } from '@/lib/i18n';
 
 type Props = {
   onNavigate: (page: 'create') => void;
@@ -51,6 +52,7 @@ export function LearningWorkspace({ onNavigate, initialTab = 'notes', initialSet
   const [memoryDraft, setMemoryDraft] = useState('');
   const [analyzing, setAnalyzing] = useState(false);
   const [confirmingTasks, setConfirmingTasks] = useState(false);
+  const [questionAnswers, setQuestionAnswers] = useState<Record<string, string>>({});
   const [messages, setMessages] = useState<ChatMessage[]>([
     { id: 'welcome', role: 'assistant', text: 'Ich bin bereit. Lade Lernmaterial hoch oder stelle mir eine Frage zu deinen Notizen.' },
   ]);
@@ -99,6 +101,8 @@ export function LearningWorkspace({ onNavigate, initialTab = 'notes', initialSet
           topics: analysisResult.data.topics,
           tasks: analysisResult.data.pending_tasks,
           uncertainties: analysisResult.data.uncertainties,
+          open_questions: Array.isArray(analysisResult.data.open_questions) ? analysisResult.data.open_questions : analysisResult.data.uncertainties.map((question: string, index: number) => ({ id: `legacy-${index}`, question, suggestions: [] })),
+          language_learning: analysisResult.data.language_learning || null,
         });
       }
     })();
@@ -237,6 +241,8 @@ export function LearningWorkspace({ onNavigate, initialTab = 'notes', initialSet
           name: file.name,
           content: file.extracted_text.slice(0, 10000) || undefined,
         })),
+        app_language: profile?.app_language || 'de',
+        learning_language: profile?.learning_language || 'de',
       },
     );
     if (!result.success) {
@@ -249,12 +255,38 @@ export function LearningWorkspace({ onNavigate, initialTab = 'notes', initialSet
         topics: result.data.topics,
         pending_tasks: result.data.tasks,
         uncertainties: result.data.uncertainties,
+        open_questions: result.data.open_questions,
+        language_learning: result.data.language_learning,
         updated_at: new Date().toISOString(),
       });
       if (saveError) setError(`Analyse erstellt, aber nicht gespeichert: ${userError(saveError)}`);
       await persistAnalysisMemory(result.data);
     }
     setAnalyzing(false);
+  };
+
+  const answerOpenQuestion = async (questionId: string, answer: string | null) => {
+    if (!user || !analysis) return;
+    const question = analysis.open_questions.find((item) => item.id === questionId);
+    if (!question) return;
+    const nextQuestions = analysis.open_questions.map((item) => item.id === questionId
+      ? { ...item, status: answer ? 'answered' as const : 'deferred' as const, ...(answer ? { answer } : {}) }
+      : item);
+    const { error: updateError } = await supabase.from('workspace_analysis').update({ open_questions: nextQuestions, uncertainties: nextQuestions.filter((item) => item.status !== 'answered').map((item) => item.question), updated_at: new Date().toISOString() }).eq('user_id', user.id);
+    if (updateError) {
+      setError(`Rückfrage konnte nicht gespeichert werden: ${userError(updateError)}`);
+      return;
+    }
+    if (answer) {
+      const { data, error: memoryError } = await supabase.from('workspace_memory').upsert({
+        user_id: user.id, workspace_key: WORKSPACE_KEY, memory_type: 'confirmed_answer',
+        stable_key: `analysis:answer:${question.id}`, title: question.question,
+        content: { question: question.question, answer }, source: 'Workspace-Rückfrage',
+      }, { onConflict: 'user_id,workspace_key,stable_key' }).select().single();
+      if (memoryError) setError(`Antwort gespeichert, aber Memory konnte nicht aktualisiert werden: ${userError(memoryError)}`);
+      else if (data) setMemory((current) => [data as WorkspaceMemory, ...current.filter((item) => item.id !== data.id)]);
+    }
+    setAnalysis({ ...analysis, open_questions: nextQuestions, uncertainties: nextQuestions.filter((item) => item.status !== 'answered').map((item) => item.question) });
   };
 
   const confirmTasks = async () => {
@@ -315,6 +347,8 @@ export function LearningWorkspace({ onNavigate, initialTab = 'notes', initialSet
         name: file.name,
         content: file.extracted_text,
       })),
+      app_language: profile?.app_language || 'de',
+      learning_language: profile?.learning_language || 'de',
       conversation: messages.slice(-20).map(({ role, text }) => ({ role, content: text })),
     };
     const result = /hausaufgabe|homework|aufgabe/i.test(trimmed)
@@ -523,12 +557,12 @@ export function LearningWorkspace({ onNavigate, initialTab = 'notes', initialSet
       <section className="mt-5 rounded-2xl border border-violet-400/20 bg-violet-500/[0.05] p-5">
         <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
           <div>
-            <h2 className="font-semibold text-white">Workspace analysieren</h2>
+            <h2 className="font-semibold text-white">{t(profile?.app_language, 'analyze')}</h2>
             <p className="mt-1 max-w-2xl text-sm text-gray-400">Die KI startet erst auf Knopfdruck und verwendet Notizen sowie den tatsächlich extrahierten Text. Nicht lesbare PDFs und Fotos werden sichtbar abgewiesen.</p>
           </div>
           <button onClick={() => void runWorkspaceAnalysis()} disabled={analyzing || (!notes.trim() && analyzableFiles.length === 0)} className="flex items-center justify-center gap-2 rounded-xl bg-violet-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-400 disabled:cursor-not-allowed disabled:opacity-50">
             {analyzing ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
-            {analyzing ? 'Analysiert ...' : 'Alles analysieren'}
+            {analyzing ? t(profile?.app_language, 'analyzing') : t(profile?.app_language, 'analyze')}
           </button>
         </div>
         {!notes.trim() && files.length > 0 && analyzableFiles.length === 0 && <p className="mt-3 text-xs text-amber-200">Die Dateien sind da, aber noch ohne lesbaren Text. Lade ein PDF oder eine Textdatei mit extrahierbarem Inhalt hoch.</p>}
@@ -537,12 +571,13 @@ export function LearningWorkspace({ onNavigate, initialTab = 'notes', initialSet
             <div className="rounded-xl border border-white/10 bg-black/10 p-4">
               <p className="text-sm leading-6 text-gray-300">{analysis.context_summary}</p>
               {analysis.topics.length > 0 && <div className="mt-3 flex flex-wrap gap-2">{analysis.topics.map((topic) => <span key={topic.name} className="rounded-full bg-cyan-400/10 px-3 py-1 text-xs text-cyan-200">{topic.name}</span>)}</div>}
+              {analysis.language_learning && <p className="mt-3 rounded-lg border border-emerald-400/20 bg-emerald-400/5 px-3 py-2 text-xs text-emerald-200">Sprachlernen erkannt: {analysis.language_learning.target_language}{analysis.language_learning.source_language ? ` ← ${analysis.language_learning.source_language}` : ''} · {analysis.language_learning.vocabulary.length} Vokabeln</p>}
             </div>
             {analysis.tasks.length > 0 && <div>
               <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-sm font-semibold text-white">Erkannte Aufgaben zur Bestätigung</h3><button onClick={() => void confirmTasks()} disabled={confirmingTasks} className="flex items-center gap-1 rounded-lg bg-cyan-500 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"><Check size={14} /> {confirmingTasks ? 'Speichert ...' : 'Fristen bestätigen'}</button></div>
               <div className="mt-2 space-y-2">{analysis.tasks.map((task, index) => <div key={`${task.title}-${index}`} className="rounded-lg border border-white/10 bg-black/10 p-3"><p className="text-sm font-medium text-white">{task.title}</p><p className="mt-1 text-xs text-gray-400">{task.task_type === 'exam' ? 'Prüfung' : 'Aufgabe'} · {task.subject} · {task.due_date ? `Frist ${task.due_date}` : 'Frist offen'} · Sicherheit {Math.round(task.confidence * 100)}%</p></div>)}</div>
             </div>}
-            {analysis.uncertainties.length > 0 && <div className="rounded-xl border border-amber-400/20 bg-amber-400/5 p-3"><p className="flex items-center gap-2 text-xs font-semibold text-amber-200"><AlertTriangle size={15} /> Offene Rückfragen</p><ul className="mt-2 space-y-1 text-xs text-amber-100/80">{analysis.uncertainties.map((item) => <li key={item}>· {item}</li>)}</ul></div>}
+            {analysis.open_questions.some((item) => item.status !== 'answered') && <div className="rounded-xl border border-amber-400/20 bg-amber-400/5 p-3"><p className="flex items-center gap-2 text-xs font-semibold text-amber-200"><AlertTriangle size={15} /> {t(profile?.app_language, 'questions')}</p><div className="mt-3 grid gap-3 sm:grid-cols-2">{analysis.open_questions.filter((item) => item.status !== 'answered').map((item) => <article key={item.id} className="rounded-xl border border-white/10 bg-black/10 p-3"><p className="text-sm text-amber-50">{item.question}</p><div className="mt-3 grid gap-2">{item.suggestions.slice(0, 3).map((suggestion) => <button key={suggestion} onClick={() => void answerOpenQuestion(item.id, suggestion)} className="rounded-lg border border-cyan-400/20 bg-cyan-500/10 px-3 py-2 text-left text-xs text-cyan-100 hover:bg-cyan-500/20">{suggestion}</button>)}</div><input value={questionAnswers[item.id] || ''} onChange={(event) => setQuestionAnswers((current) => ({ ...current, [item.id]: event.target.value }))} placeholder={t(profile?.app_language, 'answer')} className="mt-2 w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs text-white" /><div className="mt-2 flex flex-wrap gap-2"><button onClick={() => void answerOpenQuestion(item.id, questionAnswers[item.id]?.trim() || null)} className="rounded-lg bg-cyan-500 px-3 py-1.5 text-xs font-semibold text-white">{questionAnswers[item.id]?.trim() ? t(profile?.app_language, 'submit') : t(profile?.app_language, 'later')}</button></div></article>)}</div></div>}
           </div>
         )}
       </section>
