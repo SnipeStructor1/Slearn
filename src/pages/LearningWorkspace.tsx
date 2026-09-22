@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  AlertTriangle, Bot, Check, FileText, Loader2, Paperclip, Send, Sparkles, Upload, X, Layers3, Save,
+  AlertTriangle, Bot, Check, FileText, Loader2, Paperclip, Send, Sparkles, Upload, X, Layers3, Save, Brain, Pencil, Trash2,
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import { getGreetingName } from '@/lib/auth-context';
-import { supabase, type StudySet, type WorkspaceFile as StoredWorkspaceFile } from '@/lib/supabase';
+import { supabase, type StudySet, type WorkspaceFile as StoredWorkspaceFile, type WorkspaceMemory } from '@/lib/supabase';
 import { LearningPlanner } from '@/components/LearningPlanner';
 import { analyzeWorkspace, homeworkHelp, tutorChat } from '@/lib/ai-client';
 import type { WorkspaceAnalysis } from '@/lib/types';
@@ -18,12 +18,24 @@ type Props = {
   initialSetId?: string | null;
 };
 
+type ChatMessage = { role: 'assistant' | 'user'; text: string; id: string };
+const WORKSPACE_KEY = 'default';
+
+const memoryLabel: Record<WorkspaceMemory['memory_type'], string> = {
+  summary: 'Zusammenfassung',
+  topic: 'Themencluster',
+  task: 'Aufgabe',
+  exam: 'Prüfung',
+  confirmed_answer: 'Bestätigte Antwort',
+  uncertainty: 'Offene Unsicherheit',
+};
+
 export function LearningWorkspace({ onNavigate, initialTab = 'notes', initialSetId = null }: Props) {
   const { user, profile } = useAuth();
   const [notes, setNotes] = useState('');
   const [files, setFiles] = useState<StoredWorkspaceFile[]>([]);
   const [sets, setSets] = useState<StudySet[]>([]);
-  const [workspaceTab, setWorkspaceTab] = useState<'notes' | 'flashcards'>(initialTab);
+  const [workspaceTab, setWorkspaceTab] = useState<'notes' | 'flashcards' | 'memory'>(initialTab);
   const [selectedSetId, setSelectedSetId] = useState<string | null>(initialSetId);
   const [savingNotes, setSavingNotes] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -33,30 +45,54 @@ export function LearningWorkspace({ onNavigate, initialTab = 'notes', initialSet
   const [error, setError] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
   const [analysis, setAnalysis] = useState<WorkspaceAnalysis | null>(null);
+  const [memory, setMemory] = useState<WorkspaceMemory[]>([]);
+  const [memoryLoading, setMemoryLoading] = useState(false);
+  const [editingMemory, setEditingMemory] = useState<WorkspaceMemory | null>(null);
+  const [memoryDraft, setMemoryDraft] = useState('');
   const [analyzing, setAnalyzing] = useState(false);
   const [confirmingTasks, setConfirmingTasks] = useState(false);
-  const [messages, setMessages] = useState<{ role: 'assistant' | 'user'; text: string }[]>([
-    { role: 'assistant', text: 'Ich bin bereit. Lade Lernmaterial hoch oder stelle mir eine Frage zu deinen Notizen.' },
+  const [messages, setMessages] = useState<ChatMessage[]>([
+    { id: 'welcome', role: 'assistant', text: 'Ich bin bereit. Lade Lernmaterial hoch oder stelle mir eine Frage zu deinen Notizen.' },
   ]);
+  const [chatLoading, setChatLoading] = useState(true);
+  const [chatError, setChatError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const analyzableFiles = files.filter((file) => file.extraction_status === 'text_extracted' && file.extracted_text.trim());
 
   useEffect(() => {
     if (!user) return;
+    setMemoryLoading(true);
+    setChatLoading(true);
     (async () => {
-      const [noteResult, filesResult, analysisResult, setsResult] = await Promise.all([
+      const [noteResult, filesResult, analysisResult, setsResult, memoryResult, conversationResult] = await Promise.all([
         supabase.from('workspace_notes').select('content').eq('user_id', user.id).maybeSingle(),
         supabase.from('workspace_files').select('*').eq('user_id', user.id).order('created_at', { ascending: false }),
         supabase.from('workspace_analysis').select('*').eq('user_id', user.id).maybeSingle(),
         supabase.from('study_sets').select('*').eq('user_id', user.id).order('created_at', { ascending: false }),
+        supabase.from('workspace_memory').select('*').eq('user_id', user.id).eq('workspace_key', WORKSPACE_KEY).order('updated_at', { ascending: false }),
+        supabase.from('ai_conversations').select('messages').eq('user_id', user.id).eq('workspace_key', WORKSPACE_KEY).maybeSingle(),
       ]);
-      if (noteResult.error || filesResult.error || analysisResult.error || setsResult.error) {
-        setError(userError(noteResult.error || filesResult.error || analysisResult.error || setsResult.error, 'Der Workspace ist gerade im Ladechaos – bitte versuch es gleich nochmal.'));
+      if (noteResult.error || filesResult.error || analysisResult.error || setsResult.error || memoryResult.error || conversationResult.error) {
+        setError(userError(noteResult.error || filesResult.error || analysisResult.error || setsResult.error || memoryResult.error || conversationResult.error, 'Der Workspace ist gerade im Ladechaos – bitte versuch es gleich nochmal.'));
+        setChatLoading(false);
+        setMemoryLoading(false);
         return;
       }
       setNotes(noteResult.data?.content || '');
       setFiles((filesResult.data as StoredWorkspaceFile[]) || []);
       setSets((setsResult.data as StudySet[]) || []);
+      setMemory((memoryResult.data as WorkspaceMemory[]) || []);
+      const storedMessages = conversationResult.data?.messages;
+      if (Array.isArray(storedMessages)) {
+        const restored = storedMessages.filter((message): message is { role: 'assistant' | 'user'; content: string } =>
+          typeof message === 'object' && message !== null &&
+          ((message as { role?: string }).role === 'assistant' || (message as { role?: string }).role === 'user') &&
+          typeof (message as { content?: unknown }).content === 'string',
+        ).map((message, index) => ({ id: `stored-${index}`, role: message.role, text: message.content }));
+        if (restored.length) setMessages(restored);
+      }
+      setChatLoading(false);
+      setMemoryLoading(false);
       if (analysisResult.data) {
         setAnalysis({
           context_summary: analysisResult.data.context_summary,
@@ -67,6 +103,68 @@ export function LearningWorkspace({ onNavigate, initialTab = 'notes', initialSet
       }
     })();
   }, [user]);
+
+  const saveConversation = async (nextMessages: ChatMessage[]) => {
+    if (!user) return;
+    const { error: saveError } = await supabase.from('ai_conversations').upsert({
+      user_id: user.id,
+      workspace_key: WORKSPACE_KEY,
+      messages: nextMessages.map(({ role, text }) => ({ role, content: text, timestamp: new Date().toISOString() })),
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'user_id,workspace_key' });
+    if (saveError) setChatError(`Chat konnte nicht dauerhaft gespeichert werden: ${userError(saveError)}`);
+  };
+
+  const startNewChat = async () => {
+    const nextMessages: ChatMessage[] = [{ id: 'welcome', role: 'assistant', text: 'Neuer Chat gestartet. Wobei kann ich dich unterstützen?' }];
+    setMessages(nextMessages);
+    setChatError(null);
+    await saveConversation(nextMessages);
+  };
+
+  const saveMemoryEdit = async () => {
+    if (!editingMemory || !user || !memoryDraft.trim()) return;
+    const { data, error: saveError } = await supabase.from('workspace_memory')
+      .update({ title: memoryDraft.trim(), updated_at: new Date().toISOString() })
+      .eq('id', editingMemory.id).eq('user_id', user.id).select().single();
+    if (saveError) setError(`Memory konnte nicht gespeichert werden: ${userError(saveError)}`);
+    else if (data) setMemory((current) => current.map((item) => item.id === editingMemory.id ? data as WorkspaceMemory : item));
+    setEditingMemory(null);
+  };
+
+  const deleteMemory = async (item: WorkspaceMemory) => {
+    if (!user) return;
+    const { error: deleteError } = await supabase.from('workspace_memory').delete().eq('id', item.id).eq('user_id', user.id);
+    if (deleteError) setError(`Memory konnte nicht gelöscht werden: ${userError(deleteError)}`);
+    else setMemory((current) => current.filter((entry) => entry.id !== item.id));
+  };
+
+  const persistAnalysisMemory = async (result: WorkspaceAnalysis) => {
+    if (!user) return;
+    const rows = [
+      {
+        user_id: user.id, workspace_key: WORKSPACE_KEY, memory_type: 'summary', stable_key: 'analysis:summary',
+        title: 'Workspace-Zusammenfassung', content: { summary: result.context_summary }, source: 'Workspace-Analyse',
+      },
+      ...result.topics.map((topic) => ({
+        user_id: user.id, workspace_key: WORKSPACE_KEY, memory_type: 'topic', stable_key: `analysis:topic:${topic.name.toLowerCase().trim()}`,
+        title: topic.name, content: { details: topic.details, source_names: topic.source_names }, source: 'Workspace-Analyse',
+      })),
+      ...result.tasks.map((task) => ({
+        user_id: user.id, workspace_key: WORKSPACE_KEY, memory_type: task.task_type === 'exam' ? 'exam' : 'task',
+        stable_key: `analysis:${task.task_type}:${task.title.toLowerCase().trim()}:${task.due_date || 'no-date'}`,
+        title: task.title, content: task, source: 'Workspace-Analyse',
+      })),
+      ...result.uncertainties.map((item) => ({
+        user_id: user.id, workspace_key: WORKSPACE_KEY, memory_type: 'uncertainty',
+        stable_key: `analysis:uncertainty:${item.toLowerCase().trim()}`, title: item, content: { uncertainty: item }, source: 'Workspace-Analyse',
+      })),
+    ];
+    if (!rows.length) return;
+    const { data, error: memoryError } = await supabase.from('workspace_memory').upsert(rows, { onConflict: 'user_id,workspace_key,stable_key' }).select();
+    if (memoryError) setError(`Analyse erstellt, aber Memory konnte nicht gespeichert werden: ${userError(memoryError)}`);
+    else if (data) setMemory((current) => [...(data as WorkspaceMemory[]), ...current.filter((item) => !data.some((saved) => saved.id === item.id))]);
+  };
 
   const saveNotes = async () => {
     if (!user) return;
@@ -154,6 +252,7 @@ export function LearningWorkspace({ onNavigate, initialTab = 'notes', initialSet
         updated_at: new Date().toISOString(),
       });
       if (saveError) setError(`Analyse erstellt, aber nicht gespeichert: ${userError(saveError)}`);
+      await persistAnalysisMemory(result.data);
     }
     setAnalyzing(false);
   };
@@ -208,7 +307,7 @@ export function LearningWorkspace({ onNavigate, initialTab = 'notes', initialSet
     setQuestion('');
     setMessages((current) => [
       ...current,
-      { role: 'user', text: trimmed },
+      { id: crypto.randomUUID(), role: 'user', text: trimmed },
     ]);
     const context = {
       notes: notes.trim() || undefined,
@@ -216,14 +315,20 @@ export function LearningWorkspace({ onNavigate, initialTab = 'notes', initialSet
         name: file.name,
         content: file.extracted_text,
       })),
+      conversation: messages.slice(-20).map(({ role, text }) => ({ role, content: text })),
     };
     const result = /hausaufgabe|homework|aufgabe/i.test(trimmed)
       ? await homeworkHelp(trimmed, context)
       : await tutorChat(trimmed, context);
-    setMessages((current) => [...current, {
+    const assistantMessage: ChatMessage = {
+      id: crypto.randomUUID(),
       role: 'assistant',
       text: result.success ? result.data.reply : result.error,
-    }]);
+    };
+    const nextMessages = [...messages, { id: crypto.randomUUID(), role: 'user' as const, text: trimmed }, assistantMessage];
+    setMessages(nextMessages);
+    if (result.success) await saveConversation(nextMessages);
+    else setChatError(result.error);
     setAsking(false);
   };
 
@@ -241,6 +346,12 @@ export function LearningWorkspace({ onNavigate, initialTab = 'notes', initialSet
           className={`rounded-lg px-4 py-2 text-sm font-semibold transition-all ${workspaceTab === 'flashcards' ? 'bg-cyan-500/20 text-cyan-100' : 'text-gray-400 hover:bg-white/5 hover:text-white'}`}
         >
           Karteikarten ({sets.length})
+        </button>
+        <button
+          onClick={() => { setWorkspaceTab('memory'); setSelectedSetId(null); }}
+          className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-all ${workspaceTab === 'memory' ? 'bg-violet-500/20 text-violet-100' : 'text-gray-400 hover:bg-white/5 hover:text-white'}`}
+        >
+          <Brain size={15} /> KI-Memory ({memory.length})
         </button>
       </div>
       {workspaceTab === 'flashcards' && (
@@ -270,7 +381,32 @@ export function LearningWorkspace({ onNavigate, initialTab = 'notes', initialSet
           </section>
         )
       )}
-      {workspaceTab === 'flashcards' && selectedSetId ? null : (
+      {workspaceTab === 'flashcards' && selectedSetId ? null : workspaceTab === 'memory' ? (
+        <section className="rounded-2xl border border-violet-400/20 bg-violet-500/[0.05] p-5">
+          <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
+            <div>
+              <div className="flex items-center gap-2 text-violet-300"><Brain size={18} /><span className="text-xs font-semibold uppercase tracking-[0.18em]">KI-Memory</span></div>
+              <h1 className="mt-2 text-2xl font-bold text-white">Gespeicherte Erkenntnisse</h1>
+              <p className="mt-2 max-w-2xl text-sm text-gray-400">Automatisch gespeicherte Einträge bleiben privat in diesem Workspace. Du kannst jeden Eintrag bearbeiten oder löschen.</p>
+            </div>
+          </div>
+          {memoryLoading && <p className="mt-5 text-sm text-gray-500">Memory wird geladen ...</p>}
+          {!memoryLoading && memory.length === 0 && <p className="mt-5 rounded-xl border border-dashed border-white/10 px-4 py-8 text-center text-sm text-gray-500">Noch keine Erkenntnisse. Starte eine Workspace-Analyse.</p>}
+          <div className="mt-5 grid gap-3 sm:grid-cols-2">
+            {memory.map((item) => (
+              <article key={item.id} className="rounded-xl border border-white/10 bg-black/10 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div><span className="text-[10px] font-semibold uppercase tracking-wide text-violet-300">{memoryLabel[item.memory_type]}</span><h2 className="mt-1 text-sm font-semibold text-white">{item.title}</h2></div>
+                  <div className="flex gap-2"><button onClick={() => { setEditingMemory(item); setMemoryDraft(item.title); }} className="text-gray-500 hover:text-white" aria-label="Memory bearbeiten"><Pencil size={14} /></button><button onClick={() => void deleteMemory(item)} className="text-gray-500 hover:text-red-300" aria-label="Memory löschen"><Trash2 size={14} /></button></div>
+                </div>
+                <p className="mt-3 text-xs leading-5 text-gray-300">{typeof item.content.summary === 'string' ? item.content.summary : typeof item.content.details === 'string' ? item.content.details : typeof item.content.uncertainty === 'string' ? item.content.uncertainty : item.memory_type === 'task' || item.memory_type === 'exam' ? String(item.content.description || '') : item.title}</p>
+                <p className="mt-3 text-[10px] text-gray-500">Quelle: {item.source} · {new Date(item.updated_at).toLocaleDateString('de-DE')}</p>
+              </article>
+            ))}
+          </div>
+          {editingMemory && <div className="mt-5 flex flex-col gap-2 rounded-xl border border-violet-400/20 bg-black/10 p-4 sm:flex-row"><input value={memoryDraft} onChange={(event) => setMemoryDraft(event.target.value)} className="min-w-0 flex-1 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-white" /><button onClick={() => void saveMemoryEdit()} className="rounded-lg bg-violet-500 px-3 py-2 text-sm font-semibold text-white">Speichern</button><button onClick={() => setEditingMemory(null)} className="rounded-lg px-3 py-2 text-sm text-gray-400">Abbrechen</button></div>}
+        </section>
+      ) : (
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div>
           <div className="flex items-center gap-2 text-cyan-400">
@@ -422,14 +558,16 @@ export function LearningWorkspace({ onNavigate, initialTab = 'notes', initialSet
           </div>
         </div>
         <div className="mt-4 max-h-56 space-y-3 overflow-y-auto pr-1">
+          {chatLoading && <p className="text-sm text-gray-500">Chatverlauf wird geladen ...</p>}
           {messages.map((message, index) => (
-            <div key={`${message.role}-${index}`} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <div key={message.id} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
               <p className={`max-w-2xl rounded-xl px-3 py-2 text-sm ${
                 message.role === 'user' ? 'bg-cyan-500/20 text-cyan-100' : 'bg-white/[0.05] text-gray-300'
               }`}>{message.text}</p>
             </div>
           ))}
         </div>
+        {chatError && <p className="mt-3 rounded-lg border border-red-400/20 bg-red-500/10 px-3 py-2 text-xs text-red-300">{chatError}</p>}
         <div className="mt-4 flex gap-2">
           <input
             value={question}
@@ -442,6 +580,7 @@ export function LearningWorkspace({ onNavigate, initialTab = 'notes', initialSet
             <Send size={17} />
           </button>
         </div>
+        <div className="mt-3 flex justify-end"><button onClick={() => void startNewChat()} className="text-xs text-gray-500 hover:text-white">Neuer Chat</button></div>
       </section>
 
       <LearningPlanner hasAnalyzedMaterial={Boolean(analysis)} />

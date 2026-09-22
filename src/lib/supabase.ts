@@ -103,6 +103,19 @@ export type WorkspaceAnalysisRecord = {
   updated_at: string;
 };
 
+export type WorkspaceMemory = {
+  id: string;
+  user_id: string;
+  workspace_key: string;
+  memory_type: 'summary' | 'topic' | 'task' | 'exam' | 'confirmed_answer' | 'uncertainty';
+  stable_key: string;
+  title: string;
+  content: Record<string, unknown>;
+  source: string;
+  created_at: string;
+  updated_at: string;
+};
+
 export type LearningTaskDraft = {
   title: string;
   description: string;
