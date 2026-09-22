@@ -71,6 +71,8 @@ export type WorkspaceAnalysis = {
     id: string;
     question: string;
     suggestions: string[];
+    status?: 'open' | 'deferred' | 'answered';
+    answer?: string;
   }[];
   language_learning?: {
     topic_type: 'language_learning';
@@ -85,6 +87,13 @@ export type WorkspaceAnalysis = {
 export type TutorResponse = {
   reply: string;
   suggestions?: string[];
+};
+
+export type WorkspaceAnalysisContext = {
+  context_summary: string;
+  topics: { name: string; details: string }[];
+  tasks: WorkspaceAnalysis['tasks'];
+  open_question: { id: string; question: string };
 };
 
 export type AIContext = {
@@ -103,6 +112,8 @@ export type AIContext = {
     due_date: string;
     estimated_hours: number | null;
   }[];
+  analysis_context?: WorkspaceAnalysisContext;
+  memory_context?: { title: string; content: string }[];
 };
 
 export type AIOptions = {
