@@ -4,19 +4,26 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import { getGreetingName } from '@/lib/auth-context';
-import { supabase, type WorkspaceFile as StoredWorkspaceFile } from '@/lib/supabase';
+import { supabase, type StudySet, type WorkspaceFile as StoredWorkspaceFile } from '@/lib/supabase';
 import { LearningPlanner } from '@/components/LearningPlanner';
 import { analyzeWorkspace, homeworkHelp, tutorChat } from '@/lib/ai-client';
 import type { WorkspaceAnalysis } from '@/lib/types';
+import { extractFileText } from '@/lib/file-extraction';
+import { StudySetView } from './StudySetView';
 
 type Props = {
   onNavigate: (page: 'create') => void;
+  initialTab?: 'notes' | 'flashcards';
+  initialSetId?: string | null;
 };
 
-export function LearningWorkspace({ onNavigate }: Props) {
+export function LearningWorkspace({ onNavigate, initialTab = 'notes', initialSetId = null }: Props) {
   const { user, profile } = useAuth();
   const [notes, setNotes] = useState('');
   const [files, setFiles] = useState<StoredWorkspaceFile[]>([]);
+  const [sets, setSets] = useState<StudySet[]>([]);
+  const [workspaceTab, setWorkspaceTab] = useState<'notes' | 'flashcards'>(initialTab);
+  const [selectedSetId, setSelectedSetId] = useState<string | null>(initialSetId);
   const [savingNotes, setSavingNotes] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [activeTool, setActiveTool] = useState('assistant');
@@ -35,17 +42,19 @@ export function LearningWorkspace({ onNavigate }: Props) {
   useEffect(() => {
     if (!user) return;
     (async () => {
-      const [noteResult, filesResult, analysisResult] = await Promise.all([
+      const [noteResult, filesResult, analysisResult, setsResult] = await Promise.all([
         supabase.from('workspace_notes').select('content').eq('user_id', user.id).maybeSingle(),
         supabase.from('workspace_files').select('*').eq('user_id', user.id).order('created_at', { ascending: false }),
         supabase.from('workspace_analysis').select('*').eq('user_id', user.id).maybeSingle(),
+        supabase.from('study_sets').select('*').eq('user_id', user.id).order('created_at', { ascending: false }),
       ]);
-      if (noteResult.error || filesResult.error || analysisResult.error) {
-        setError(noteResult.error?.message || filesResult.error?.message || analysisResult.error?.message || 'Workspace konnte nicht geladen werden.');
+      if (noteResult.error || filesResult.error || analysisResult.error || setsResult.error) {
+        setError(noteResult.error?.message || filesResult.error?.message || analysisResult.error?.message || setsResult.error?.message || 'Workspace konnte nicht geladen werden.');
         return;
       }
       setNotes(noteResult.data?.content || '');
       setFiles((filesResult.data as StoredWorkspaceFile[]) || []);
+      setSets((setsResult.data as StudySet[]) || []);
       if (analysisResult.data) {
         setAnalysis({
           context_summary: analysisResult.data.context_summary,
@@ -75,19 +84,21 @@ export function LearningWorkspace({ onNavigate }: Props) {
       const isText = ['text/plain', 'text/markdown', 'text/csv', 'application/json'].includes(file.type)
         || /\.(txt|md|csv|json)$/i.test(file.name);
       const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
-      if ((!isText && !isPdf) || file.size > 10 * 1024 * 1024) {
-        setError(`${file.name}: Nur PDF- oder Textdateien bis 10 MB werden akzeptiert.`);
+      const isImage = file.type.startsWith('image/') || /\.(png|jpe?g|webp)$/i.test(file.name);
+      if ((!isText && !isPdf && !isImage) || file.size > 10 * 1024 * 1024) {
+        setError(`${file.name}: Nur PDF-, Foto- oder Textdateien bis 10 MB werden akzeptiert.`);
         continue;
       }
-      let extractedText = '';
-      let extractionStatus: StoredWorkspaceFile['extraction_status'] = 'metadata_only';
-      if (isText) {
-        try {
-          extractedText = (await file.text()).slice(0, 10_000);
-          extractionStatus = 'text_extracted';
-        } catch {
-          extractionStatus = 'failed';
-        }
+      if (isImage) {
+        setError(`${file.name}: Foto-OCR ist in dieser Umgebung nicht verfügbar. Die Datei wird nicht als KI-Kontext verwendet.`);
+        continue;
+      }
+      const extraction = await extractFileText(file);
+      const extractedText = extraction.status === 'text_extracted' ? extraction.text : '';
+      const extractionStatus = extraction.status;
+      if (extractionStatus !== 'text_extracted') {
+        setError(`${file.name}: ${extraction.error}`);
+        continue;
       }
       const storagePath = `${user.id}/${crypto.randomUUID()}-${file.name}`;
       const { error } = await supabase.storage.from('workspace-files').upload(storagePath, file);
@@ -122,7 +133,7 @@ export function LearningWorkspace({ onNavigate }: Props) {
       'Analysiere meinen gesamten LearningWorkspace. Extrahiere nur belastbare Aufgaben und Fristen, gruppiere zusammengehörige Themen und nenne offene Rückfragen.',
       {
         notes: notes.trim() || undefined,
-        files: files.map((file) => ({
+        files: files.filter((file) => file.extraction_status === 'text_extracted' && file.extracted_text.trim()).map((file) => ({
           name: file.name,
           content: file.extracted_text || undefined,
         })),
@@ -199,7 +210,10 @@ export function LearningWorkspace({ onNavigate }: Props) {
     ]);
     const context = {
       notes: notes.trim() || undefined,
-      files: files.map((file) => ({ name: file.name })),
+      files: files.filter((file) => file.extraction_status === 'text_extracted' && file.extracted_text.trim()).map((file) => ({
+        name: file.name,
+        content: file.extracted_text,
+      })),
     };
     const result = /hausaufgabe|homework|aufgabe/i.test(trimmed)
       ? await homeworkHelp(trimmed, context)
@@ -213,6 +227,48 @@ export function LearningWorkspace({ onNavigate }: Props) {
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      <div className="mb-8 flex flex-wrap items-center gap-2 rounded-xl border border-white/5 bg-white/[0.02] p-2">
+        <button
+          onClick={() => { setWorkspaceTab('notes'); setSelectedSetId(null); }}
+          className={`rounded-lg px-4 py-2 text-sm font-semibold transition-all ${workspaceTab === 'notes' ? 'bg-cyan-500/20 text-cyan-100' : 'text-gray-400 hover:bg-white/5 hover:text-white'}`}
+        >
+          Notizen & Materialien
+        </button>
+        <button
+          onClick={() => setWorkspaceTab('flashcards')}
+          className={`rounded-lg px-4 py-2 text-sm font-semibold transition-all ${workspaceTab === 'flashcards' ? 'bg-cyan-500/20 text-cyan-100' : 'text-gray-400 hover:bg-white/5 hover:text-white'}`}
+        >
+          Karteikarten ({sets.length})
+        </button>
+      </div>
+      {workspaceTab === 'flashcards' && (
+        selectedSetId ? (
+          <StudySetView setId={selectedSetId} onBack={() => setSelectedSetId(null)} />
+        ) : (
+          <section className="mb-8 rounded-2xl border border-white/5 bg-white/[0.02] p-5">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="font-semibold text-white">Deine Karteikarten</h2>
+                <p className="mt-1 text-xs text-gray-500">Wähle ein Set, um direkt im aktuellen Workspace zu lernen.</p>
+              </div>
+              <button onClick={() => onNavigate('create')} className="rounded-lg bg-cyan-500 px-3 py-2 text-xs font-semibold text-white hover:bg-cyan-400">Set erstellen</button>
+            </div>
+            {sets.length === 0 ? (
+              <p className="mt-5 text-sm text-gray-500">Noch keine Karteikarten erstellt.</p>
+            ) : (
+              <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {sets.map((studySet) => (
+                  <button key={studySet.id} onClick={() => setSelectedSetId(studySet.id)} className="rounded-xl border border-white/10 bg-black/10 p-4 text-left hover:border-cyan-400/40 hover:bg-cyan-500/5">
+                    <p className="font-medium text-white">{studySet.title}</p>
+                    <p className="mt-1 text-xs text-gray-400">{studySet.card_count} Karten · {studySet.subject}</p>
+                  </button>
+                ))}
+              </div>
+            )}
+          </section>
+        )
+      )}
+      {workspaceTab === 'flashcards' && selectedSetId ? null : (
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div>
           <div className="flex items-center gap-2 text-cyan-400">
@@ -233,7 +289,10 @@ export function LearningWorkspace({ onNavigate }: Props) {
           <Sparkles size={17} /> Slearn-Set erstellen
         </button>
       </div>
+      )}
 
+      {workspaceTab === 'notes' && (
+      <>
       <div className="mt-8 grid gap-3 sm:grid-cols-2">
         {[
           { id: 'assistant', icon: Bot, title: 'KI-Lernassistent', text: 'Fragen, Erklärungen und Hausaufgabenhilfe' },
@@ -283,7 +342,7 @@ export function LearningWorkspace({ onNavigate }: Props) {
             ref={fileInputRef}
             type="file"
             multiple
-            accept=".pdf,.txt,.md,.csv,.json,application/pdf,text/plain,text/markdown,text/csv,application/json"
+            accept=".pdf,.txt,.md,.csv,.json,.png,.jpg,.jpeg,.webp,application/pdf,text/plain,text/markdown,text/csv,application/json,image/png,image/jpeg,image/webp"
             onChange={(event) => { void addFiles(event.target.files); event.target.value = ''; }}
             className="hidden"
           />
@@ -302,7 +361,7 @@ export function LearningWorkspace({ onNavigate }: Props) {
           >
             <Paperclip size={22} className="text-gray-400" />
             <span className="mt-2 text-sm font-medium text-gray-300">{uploading ? 'Wird sicher gespeichert ...' : 'Dateien auswählen'}</span>
-            <span className="mt-1 text-xs text-gray-600">PDF oder Text · klicken oder ziehen · max. 10 MB</span>
+            <span className="mt-1 text-xs text-gray-600">PDF, Foto oder Text · klicken oder ziehen · max. 10 MB</span>
           </button>
           {error && <p className="mt-3 rounded-lg border border-red-400/20 bg-red-500/10 px-3 py-2 text-xs text-red-300">{error}</p>}
           <div className="mt-4 space-y-2">
@@ -311,6 +370,9 @@ export function LearningWorkspace({ onNavigate }: Props) {
               <div key={file.id} className="flex items-center gap-3 rounded-lg bg-white/[0.03] px-3 py-2">
                 <FileText size={16} className="text-cyan-300" />
                 <span className="min-w-0 flex-1 truncate text-xs text-gray-300">{file.name}</span>
+                <span className={`text-[10px] ${file.extraction_status === 'text_extracted' ? 'text-emerald-300' : 'text-amber-300'}`}>
+                  {file.extraction_status === 'text_extracted' ? 'Text extrahiert' : 'Nicht im KI-Kontext'}
+                </span>
                 <button onClick={() => void removeFile(file)} className="text-gray-600 hover:text-white">
                   <X size={14} />
                 </button>
@@ -324,7 +386,7 @@ export function LearningWorkspace({ onNavigate }: Props) {
         <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
           <div>
             <h2 className="font-semibold text-white">Workspace analysieren</h2>
-            <p className="mt-1 max-w-2xl text-sm text-gray-400">Die KI startet erst auf Knopfdruck und verwendet Notizen sowie extrahierten Text. PDFs bleiben erhalten; ohne PDF-Parser werden sie als Material-Metadaten markiert.</p>
+            <p className="mt-1 max-w-2xl text-sm text-gray-400">Die KI startet erst auf Knopfdruck und verwendet Notizen sowie den tatsächlich extrahierten Text. Nicht lesbare PDFs und Fotos werden sichtbar abgewiesen.</p>
           </div>
           <button onClick={() => void runWorkspaceAnalysis()} disabled={analyzing || (!notes.trim() && files.length === 0)} className="flex items-center justify-center gap-2 rounded-xl bg-violet-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-400 disabled:cursor-not-allowed disabled:opacity-50">
             {analyzing ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
@@ -380,6 +442,8 @@ export function LearningWorkspace({ onNavigate }: Props) {
       </section>
 
       <LearningPlanner />
+      </>
+      )}
     </div>
   );
 }

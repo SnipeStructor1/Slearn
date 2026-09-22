@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Sparkles, FileText, ImageIcon, Loader2, ArrowLeft, ArrowRight, Check, RefreshCw, Palette } from 'lucide-react';
 import { generateFlashcards } from '@/lib/ai-client';
 import { supabase } from '@/lib/supabase';
@@ -6,15 +6,15 @@ import { useAuth } from '@/lib/auth-context';
 import { subjects } from '@/lib/mock-data';
 import { colorThemes, iconOptions, getTheme, getIcon, subjectDefaults } from '@/lib/themes';
 import type { GeneratedSet } from '@/lib/types';
+import { extractFileText } from '@/lib/file-extraction';
 
 type Props = {
   onCreated: (setId: string) => void;
-  onNavigate: (page: 'dashboard') => void;
 };
 
 type Step = 'input' | 'preview';
 
-export function CreateSet({ onCreated, onNavigate }: Props) {
+export function CreateSet({ onCreated }: Props) {
   const { user } = useAuth();
   const [step, setStep] = useState<Step>('input');
   const [inputMode, setInputMode] = useState<'topic' | 'text' | 'image'>('topic');
@@ -27,6 +27,9 @@ export function CreateSet({ onCreated, onNavigate }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [colorTheme, setColorTheme] = useState('cyan');
   const [iconName, setIconName] = useState('BookOpen');
+  const [sourceFile, setSourceFile] = useState<File | null>(null);
+  const [sourceContent, setSourceContent] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleSubjectChange = (newSubject: string) => {
     setSubject(newSubject);
@@ -52,7 +55,17 @@ export function CreateSet({ onCreated, onNavigate }: Props) {
         input = text.trim();
         sourceType = 'text';
       } else {
-        input = text.trim() || topic.trim();
+        if (sourceFile) {
+          const extraction = await extractFileText(sourceFile);
+          if (extraction.status !== 'text_extracted') {
+            setError(extraction.error);
+            setLoading(false);
+            return;
+          }
+          input = extraction.text;
+        } else {
+          input = text.trim() || topic.trim();
+        }
         sourceType = 'text';
       }
 
@@ -62,6 +75,7 @@ export function CreateSet({ onCreated, onNavigate }: Props) {
         return;
       }
 
+      setSourceContent(input);
       const result = await generateFlashcards(input, undefined, 20);
       if (!result.success) {
         setError(result.error);
@@ -101,7 +115,7 @@ export function CreateSet({ onCreated, onNavigate }: Props) {
           visibility: 'private',
           summary: generated.summary,
           source_type: inputMode === 'topic' ? 'topic' : 'text',
-          source_content: inputMode === 'topic' ? topic : text,
+          source_content: sourceContent,
           card_count: generated.cards.length,
           color_theme: colorTheme,
           icon_name: iconName,
@@ -370,7 +384,27 @@ export function CreateSet({ onCreated, onNavigate }: Props) {
             <div className="rounded-xl border-2 border-dashed border-white/10 bg-white/[0.02] p-12 text-center">
               <ImageIcon size={40} className="mx-auto text-gray-600" />
               <p className="mt-3 text-sm text-gray-400">Drag & drop or click to upload</p>
-              <p className="text-xs text-gray-500">PNG, JPG, PDF — scans of textbook pages, handwritten notes, or summary sheets</p>
+              <p className="text-xs text-gray-500">PDF oder Text-PDF — auslesbarer Text wird an die KI übergeben</p>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".pdf,application/pdf,image/png,image/jpeg,image/webp"
+                onChange={(event) => {
+                  const file = event.target.files?.[0] || null;
+                  setSourceFile(file);
+                  if (file) setText('');
+                  event.target.value = '';
+                }}
+                className="sr-only"
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="mt-3 rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-3 py-2 text-xs text-cyan-200 hover:bg-cyan-500/20"
+              >
+                {sourceFile ? `Ausgewählt: ${sourceFile.name}` : 'PDF auswählen'}
+              </button>
+              <p className="mt-2 text-xs text-amber-300/80">Fotos werden erst nach verfügbarer OCR unterstützt. Es wird kein leerer Bildkontext gesendet.</p>
               <div className="mt-4">
                 <textarea
                   value={text}
@@ -405,7 +439,7 @@ export function CreateSet({ onCreated, onNavigate }: Props) {
 
         <button
           onClick={handleGenerate}
-          disabled={loading || (inputMode === 'topic' ? !topic.trim() : !text.trim())}
+          disabled={loading || (inputMode === 'topic' ? !topic.trim() : inputMode === 'image' ? (!text.trim() && !sourceFile) : !text.trim())}
           className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 py-3.5 text-sm font-semibold text-white shadow-lg shadow-cyan-500/20 transition-all hover:brightness-110 disabled:opacity-40"
         >
           {loading ? (
