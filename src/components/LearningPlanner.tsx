@@ -2,8 +2,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { CalendarDays, Check, Circle, Clock3, Edit3, Loader2, Plus, Sparkles, Trash2, X } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import { generateStudyPlan } from '@/lib/ai-client';
+import { isAIEnabled } from '@/lib/ai-client';
 import { supabase, type LearningTask } from '@/lib/supabase';
 import type { GeneratedStudyPlan } from '@/lib/types';
+import { userError } from '@/lib/error-text';
 
 const emptyForm = {
   title: '',
@@ -14,7 +16,7 @@ const emptyForm = {
   estimated_hours: '',
 };
 
-export function LearningPlanner() {
+export function LearningPlanner({ hasAnalyzedMaterial }: { hasAnalyzedMaterial: boolean }) {
   const { user } = useAuth();
   const [tasks, setTasks] = useState<LearningTask[]>([]);
   const [form, setForm] = useState(emptyForm);
@@ -25,6 +27,7 @@ export function LearningPlanner() {
   const [planning, setPlanning] = useState(false);
   const [plan, setPlan] = useState<GeneratedStudyPlan | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [aiConfigured, setAiConfigured] = useState(false);
 
   const loadTasks = async () => {
     if (!user) return;
@@ -34,12 +37,15 @@ export function LearningPlanner() {
       .select('*')
       .eq('user_id', user.id)
       .order('due_date', { ascending: true });
-    if (requestError) setError(requestError.message);
+    if (requestError) setError(userError(requestError, 'Der Lernkalender konnte nicht geladen werden – bitte versuch es gleich nochmal.'));
     setTasks((data as LearningTask[]) || []);
     setLoading(false);
   };
 
-  useEffect(() => { void loadTasks(); }, [user]);
+  useEffect(() => {
+    void loadTasks();
+    void isAIEnabled().then(setAiConfigured);
+  }, [user]);
 
   const groupedTasks = useMemo(() => tasks.reduce<Record<string, LearningTask[]>>((groups, task) => {
     (groups[task.due_date] ||= []).push(task);
@@ -70,7 +76,7 @@ export function LearningPlanner() {
     const result = editingId
       ? await supabase.from('learning_tasks').update(payload).eq('id', editingId).eq('user_id', user.id)
       : await supabase.from('learning_tasks').insert({ ...payload, user_id: user.id });
-    if (result.error) setError(result.error.message);
+    if (result.error) setError(userError(result.error, 'Die Aufgabe konnte nicht gespeichert werden – bitte versuch es gleich nochmal.'));
     else { resetForm(); await loadTasks(); }
     setSaving(false);
   };
@@ -91,7 +97,7 @@ export function LearningPlanner() {
   const toggleTask = async (task: LearningTask) => {
     const { error: updateError } = await supabase.from('learning_tasks').update({ completed: !task.completed, updated_at: new Date().toISOString() }).eq('id', task.id).eq('user_id', user?.id);
     if (updateError) {
-      setError(updateError.message);
+      setError(userError(updateError, 'Der Status konnte nicht gespeichert werden – bitte versuch es gleich nochmal.'));
       return;
     }
     setTasks((current) => current.map((item) => item.id === task.id ? { ...item, completed: !item.completed } : item));
@@ -100,7 +106,7 @@ export function LearningPlanner() {
   const deleteTask = async (task: LearningTask) => {
     const { error: deleteError } = await supabase.from('learning_tasks').delete().eq('id', task.id).eq('user_id', user?.id);
     if (deleteError) {
-      setError(deleteError.message);
+      setError(userError(deleteError, 'Die Aufgabe wollte nicht verschwinden – bitte versuch es gleich nochmal.'));
       return;
     }
     setTasks((current) => current.filter((item) => item.id !== task.id));
@@ -108,7 +114,15 @@ export function LearningPlanner() {
 
   const createPlan = async () => {
     const openTasks = tasks.filter((task) => !task.completed);
-    if (!openTasks.length) { setError('Füge zuerst offene Aufgaben oder Prüfungen hinzu.'); return; }
+    const missing: string[] = [];
+    if (!openTasks.length) missing.push('bestätigte, offene Aufgaben oder Prüfungen');
+    if (!hasAnalyzedMaterial) missing.push('analysiertes Lernmaterial');
+    if (openTasks.some((task) => !task.due_date)) missing.push('Fristen bzw. einen Zeitraum');
+    if (!aiConfigured) missing.push('eine aktive KI-Konfiguration');
+    if (missing.length) {
+      setError(`Fast geschafft – es fehlt noch: ${missing.join(', ')}.`);
+      return;
+    }
     setPlanning(true);
     setError(null);
     const result = await generateStudyPlan(
@@ -129,7 +143,7 @@ export function LearningPlanner() {
           units: result.data.units,
           progress: 0,
         });
-        if (saveError) setError(`Lernplan erstellt, aber nicht gespeichert: ${saveError.message}`);
+        if (saveError) setError(`Der Lernplan ist da, aber beim Speichern klemmts: ${userError(saveError)}`);
       }
     }
     setPlanning(false);
@@ -145,10 +159,15 @@ export function LearningPlanner() {
         </div>
         <div className="flex flex-wrap gap-2">
           <button onClick={() => { setShowForm(true); setEditingId(null); setForm(emptyForm); }} className="flex items-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-sm text-gray-200 hover:bg-white/5"><Plus size={16} /> Hinzufügen</button>
-          <button onClick={() => void createPlan()} disabled={planning || !hasOpenTasks} title={!hasOpenTasks ? 'Füge zuerst eine offene Aufgabe oder Prüfung hinzu.' : undefined} className="flex items-center gap-2 rounded-lg bg-cyan-500 px-3 py-2 text-sm font-semibold text-white hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-50"><Sparkles size={16} /> {planning ? 'Plan wird erstellt ...' : 'KI-Lernplan'}</button>
+          <button onClick={() => void createPlan()} disabled={planning} className="flex items-center gap-2 rounded-lg bg-cyan-500 px-3 py-2 text-sm font-semibold text-white hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-50"><Sparkles size={16} /> {planning ? 'Plan wird erstellt ...' : 'Lernplan erstellen'}</button>
         </div>
       </div>
-      {!hasOpenTasks && <p className="mt-3 text-xs text-gray-500">Füge eine offene Aufgabe oder Prüfung hinzu, um daraus einen KI-Lernplan zu erstellen.</p>}
+      <div className="mt-4 grid gap-2 rounded-xl border border-white/5 bg-black/10 p-3 text-xs sm:grid-cols-2">
+        <p className={hasOpenTasks ? 'text-emerald-300' : 'text-amber-300'}>{hasOpenTasks ? '✓ Offene Aufgaben bestätigt' : '○ Noch keine bestätigte offene Aufgabe'}</p>
+        <p className={hasAnalyzedMaterial ? 'text-emerald-300' : 'text-amber-300'}>{hasAnalyzedMaterial ? '✓ Lernmaterial analysiert' : '○ Lernmaterial erst analysieren'}</p>
+        <p className={hasOpenTasks && tasks.every((task) => task.due_date) ? 'text-emerald-300' : 'text-amber-300'}>{hasOpenTasks && tasks.every((task) => task.due_date) ? '✓ Fristen/Zeitraum vorhanden' : '○ Fristen oder Zeitraum ergänzen'}</p>
+        <p className={aiConfigured ? 'text-emerald-300' : 'text-amber-300'}>{aiConfigured ? '✓ KI ist startklar' : '○ KI-Konfiguration fehlt'}</p>
+      </div>
 
       {showForm && (
         <form onSubmit={(event) => void saveTask(event)} className="mt-5 grid gap-3 rounded-xl border border-cyan-400/20 bg-cyan-500/5 p-4 sm:grid-cols-2">

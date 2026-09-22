@@ -9,6 +9,7 @@ import { LearningPlanner } from '@/components/LearningPlanner';
 import { analyzeWorkspace, homeworkHelp, tutorChat } from '@/lib/ai-client';
 import type { WorkspaceAnalysis } from '@/lib/types';
 import { extractFileText } from '@/lib/file-extraction';
+import { userError } from '@/lib/error-text';
 import { StudySetView } from './StudySetView';
 
 type Props = {
@@ -38,6 +39,7 @@ export function LearningWorkspace({ onNavigate, initialTab = 'notes', initialSet
     { role: 'assistant', text: 'Ich bin bereit. Lade Lernmaterial hoch oder stelle mir eine Frage zu deinen Notizen.' },
   ]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const analyzableFiles = files.filter((file) => file.extraction_status === 'text_extracted' && file.extracted_text.trim());
 
   useEffect(() => {
     if (!user) return;
@@ -49,7 +51,7 @@ export function LearningWorkspace({ onNavigate, initialTab = 'notes', initialSet
         supabase.from('study_sets').select('*').eq('user_id', user.id).order('created_at', { ascending: false }),
       ]);
       if (noteResult.error || filesResult.error || analysisResult.error || setsResult.error) {
-        setError(noteResult.error?.message || filesResult.error?.message || analysisResult.error?.message || setsResult.error?.message || 'Workspace konnte nicht geladen werden.');
+        setError(userError(noteResult.error || filesResult.error || analysisResult.error || setsResult.error, 'Der Workspace ist gerade im Ladechaos – bitte versuch es gleich nochmal.'));
         return;
       }
       setNotes(noteResult.data?.content || '');
@@ -71,7 +73,7 @@ export function LearningWorkspace({ onNavigate, initialTab = 'notes', initialSet
     setSavingNotes(true);
     setError(null);
     const { error: saveError } = await supabase.from('workspace_notes').upsert({ user_id: user.id, content: notes, updated_at: new Date().toISOString() });
-    if (saveError) setError(`Notizen konnten nicht gespeichert werden: ${saveError.message}`);
+    if (saveError) setError(`Notizen konnten nicht gespeichert werden: ${userError(saveError)}`);
     setSavingNotes(false);
   };
 
@@ -99,7 +101,7 @@ export function LearningWorkspace({ onNavigate, initialTab = 'notes', initialSet
       const storagePath = `${user.id}/${crypto.randomUUID()}-${file.name}`;
       const { error } = await supabase.storage.from('workspace-files').upload(storagePath, file);
       if (error) {
-        setError(`Upload von ${file.name} fehlgeschlagen: ${error.message}`);
+        setError(`${file.name}: ${userError(error, 'Der Upload ist ins Stolpern geraten – bitte versuch es gleich nochmal.')}`);
         continue;
       }
       const { data, error: metadataError } = await supabase.from('workspace_files').insert({
@@ -112,7 +114,7 @@ export function LearningWorkspace({ onNavigate, initialTab = 'notes', initialSet
         extraction_status: extractionStatus,
       }).select().single();
       if (metadataError) {
-        setError(`Datei ${file.name} wurde gespeichert, aber nicht registriert: ${metadataError.message}`);
+        setError(`${file.name} wurde hochgeladen, aber nicht eingetragen: ${userError(metadataError)}`);
       } else if (data) {
         uploaded.push(data as StoredWorkspaceFile);
       }
@@ -128,10 +130,10 @@ export function LearningWorkspace({ onNavigate, initialTab = 'notes', initialSet
     const result = await analyzeWorkspace(
       'Analysiere meinen gesamten LearningWorkspace. Extrahiere nur belastbare Aufgaben und Fristen, gruppiere zusammengehörige Themen und nenne offene Rückfragen.',
       {
-        notes: notes.trim() || undefined,
-        files: files.filter((file) => file.extraction_status === 'text_extracted' && file.extracted_text.trim()).map((file) => ({
+        notes: notes.trim().slice(0, 20000) || undefined,
+        files: analyzableFiles.map((file) => ({
           name: file.name,
-          content: file.extracted_text || undefined,
+          content: file.extracted_text.slice(0, 10000) || undefined,
         })),
       },
     );
@@ -147,7 +149,7 @@ export function LearningWorkspace({ onNavigate, initialTab = 'notes', initialSet
         uncertainties: result.data.uncertainties,
         updated_at: new Date().toISOString(),
       });
-      if (saveError) setError(`Analyse erstellt, aber nicht gespeichert: ${saveError.message}`);
+      if (saveError) setError(`Analyse erstellt, aber nicht gespeichert: ${userError(saveError)}`);
     }
     setAnalyzing(false);
   };
@@ -171,14 +173,14 @@ export function LearningWorkspace({ onNavigate, initialTab = 'notes', initialSet
       due_date: task.due_date as string,
       estimated_hours: task.estimated_hours,
     })));
-    if (saveError) setError(`Bestätigte Aufgaben konnten nicht gespeichert werden: ${saveError.message}`);
+    if (saveError) setError(`Bestätigte Aufgaben konnten nicht gespeichert werden: ${userError(saveError)}`);
     else {
       const remainingTasks = analysis.tasks.filter((task) => !tasksWithDates.includes(task));
       const { error: analysisUpdateError } = await supabase.from('workspace_analysis').update({
         pending_tasks: remainingTasks,
         updated_at: new Date().toISOString(),
       }).eq('user_id', user.id);
-      if (analysisUpdateError) setError(`Aufgaben gespeichert, Analyse konnte nicht aktualisiert werden: ${analysisUpdateError.message}`);
+      if (analysisUpdateError) setError(`Aufgaben gespeichert, Analyse konnte nicht aktualisiert werden: ${userError(analysisUpdateError)}`);
       setAnalysis((current) => current ? { ...current, tasks: remainingTasks } : current);
     }
     setConfirmingTasks(false);
@@ -189,7 +191,7 @@ export function LearningWorkspace({ onNavigate, initialTab = 'notes', initialSet
     const { error: storageError } = await supabase.storage.from('workspace-files').remove([file.storage_path]);
     const { error: metadataError } = await supabase.from('workspace_files').delete().eq('id', file.id).eq('user_id', user?.id);
     if (storageError || metadataError) {
-      setError(storageError?.message || metadataError?.message || 'Datei konnte nicht gelöscht werden.');
+      setError(userError(storageError || metadataError, 'Die Datei wollte gerade nicht verschwinden – bitte versuch es gleich nochmal.'));
       return;
     }
     setFiles((current) => current.filter((item) => item.id !== file.id));
@@ -384,11 +386,12 @@ export function LearningWorkspace({ onNavigate, initialTab = 'notes', initialSet
             <h2 className="font-semibold text-white">Workspace analysieren</h2>
             <p className="mt-1 max-w-2xl text-sm text-gray-400">Die KI startet erst auf Knopfdruck und verwendet Notizen sowie den tatsächlich extrahierten Text. Nicht lesbare PDFs und Fotos werden sichtbar abgewiesen.</p>
           </div>
-          <button onClick={() => void runWorkspaceAnalysis()} disabled={analyzing || (!notes.trim() && files.length === 0)} className="flex items-center justify-center gap-2 rounded-xl bg-violet-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-400 disabled:cursor-not-allowed disabled:opacity-50">
+          <button onClick={() => void runWorkspaceAnalysis()} disabled={analyzing || (!notes.trim() && analyzableFiles.length === 0)} className="flex items-center justify-center gap-2 rounded-xl bg-violet-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-400 disabled:cursor-not-allowed disabled:opacity-50">
             {analyzing ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
             {analyzing ? 'Analysiert ...' : 'Alles analysieren'}
           </button>
         </div>
+        {!notes.trim() && files.length > 0 && analyzableFiles.length === 0 && <p className="mt-3 text-xs text-amber-200">Die Dateien sind da, aber noch ohne lesbaren Text. Lade ein PDF oder eine Textdatei mit extrahierbarem Inhalt hoch.</p>}
         {analysis && (
           <div className="mt-5 space-y-4">
             <div className="rounded-xl border border-white/10 bg-black/10 p-4">
@@ -437,7 +440,7 @@ export function LearningWorkspace({ onNavigate, initialTab = 'notes', initialSet
         </div>
       </section>
 
-      <LearningPlanner />
+      <LearningPlanner hasAnalyzedMaterial={Boolean(analysis)} />
       </>
       )}
     </div>
