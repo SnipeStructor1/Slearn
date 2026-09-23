@@ -5,7 +5,7 @@ import type {
 import { userError } from '@/lib/error-text';
 
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
-const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
+
 
 // Automatische Auswahl durch OpenRouter (wählt immer ein funktionierendes Free-Modell)
 const DEFAULT_MODEL = 'openrouter/free';
