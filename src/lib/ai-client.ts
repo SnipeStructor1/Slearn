@@ -5,11 +5,17 @@ import type {
 import { userError } from '@/lib/error-text';
 
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
-const DEFAULT_MODEL = '"openrouter/free"';
+const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
+
+// Automatische Auswahl durch OpenRouter (wählt immer ein funktionierendes Free-Modell)
+const DEFAULT_MODEL = 'openrouter/free';
+
+// Aktuelle kostenlose Modelle als Fallback
 const FALLBACK_MODELS = [
-  'openai/gpt-4o-mini',
-  'google/gemini-2.0-flash-exp:free',
-  'meta-llama/llama-3.1-8b-instruct:free',
+  'nvidia/nemotron-3-super-120b-a12b:free',
+  'poolside/laguna-s-2.1:free',
+  'google/gemma-4-31b-it:free',
+  'z-ai/glm-5.2:free',
 ];
 const MAX_TOKENS = 4000;
 
