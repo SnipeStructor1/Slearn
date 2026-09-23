@@ -5,7 +5,7 @@ import type {
 import { userError } from '@/lib/error-text';
 
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
-const DEFAULT_MODEL = 'openai/gpt-oss-20b:free';
+const DEFAULT_MODEL = '"openrouter/free"';
 const FALLBACK_MODELS = [
   'openai/gpt-4o-mini',
   'google/gemini-2.0-flash-exp:free',
