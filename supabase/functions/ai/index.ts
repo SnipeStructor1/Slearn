@@ -73,7 +73,7 @@ const MAX_TASK_FIELD_LENGTH = 2_000;
 const AI_DEFAULT_MODELS = {
   openai: "gpt-4o-mini",
   gemini: "gemini-1.5-flash",
-  openrouter: "openai/gpt-oss-20b:free",
+  openrouter: "openrouter/free",
 } as const;
 const OPENROUTER_FALLBACK_MODELS = [
   "openai/gpt-4o-mini",
