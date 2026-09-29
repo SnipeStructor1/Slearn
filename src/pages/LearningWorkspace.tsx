@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  AlertTriangle, Bot, Check, FileText, Loader2, Paperclip, Send, Sparkles, Upload, X, Layers3, Save,
+  AlertTriangle, Bot, Check, FileText, Loader2, Paperclip, Send, Sparkles, Upload, X, Layers3, Save, MessageCircle,
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import { getGreetingName } from '@/lib/auth-context';
@@ -35,6 +35,10 @@ export function LearningWorkspace({ onNavigate, initialTab = 'notes', initialSet
   const [analysis, setAnalysis] = useState<WorkspaceAnalysis | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [confirmingTasks, setConfirmingTasks] = useState(false);
+  const [clarificationOpen, setClarificationOpen] = useState(false);
+  const [clarificationInput, setClarificationInput] = useState('');
+  const [clarificationAsking, setClarificationAsking] = useState(false);
+  const [clarificationMessages, setClarificationMessages] = useState<{ role: 'assistant' | 'user'; text: string }[]>([]);
   const [messages, setMessages] = useState<{ role: 'assistant' | 'user'; text: string }[]>([
     { role: 'assistant', text: 'Ich bin bereit. Lade Lernmaterial hoch oder stelle mir eine Frage zu deinen Notizen.' },
   ]);
@@ -141,6 +145,13 @@ export function LearningWorkspace({ onNavigate, initialTab = 'notes', initialSet
       setError(`Analyse fehlgeschlagen: ${result.error}`);
     } else {
       setAnalysis(result.data);
+      if (result.data.uncertainties.length > 0) {
+        setClarificationMessages([{
+          role: 'assistant',
+          text: `Ich habe ${result.data.uncertainties.length === 1 ? 'eine Rückfrage' : 'mehrere Rückfragen'} zur Analyse. Beantworte sie direkt hier, damit wir den Lernkontext besser einordnen können.`,
+        }]);
+        setClarificationOpen(true);
+      }
       const { error: saveError } = await supabase.from('workspace_analysis').upsert({
         user_id: user.id,
         context_summary: result.data.context_summary,
@@ -184,6 +195,27 @@ export function LearningWorkspace({ onNavigate, initialTab = 'notes', initialSet
       setAnalysis((current) => current ? { ...current, tasks: remainingTasks } : current);
     }
     setConfirmingTasks(false);
+  };
+
+  const askClarification = async () => {
+    const trimmed = clarificationInput.trim();
+    if (!trimmed || clarificationAsking || !analysis) return;
+    setClarificationInput('');
+    setClarificationAsking(true);
+    setClarificationMessages((current) => [...current, { role: 'user', text: trimmed }]);
+    const unresolvedQuestions = analysis.uncertainties.join('\n- ');
+    const result = await tutorChat(
+      `Wir klären Rückfragen aus einer Workspace-Analyse. Offene Rückfragen:\n- ${unresolvedQuestions}\n\nMeine Antwort bzw. Ergänzung:\n${trimmed}\n\nOrdne meine Antwort den Rückfragen zu und sage kurz, welche Information für eine spätere erneute Analyse jetzt geklärt ist und was noch fehlt.`,
+      {
+        notes: notes.trim() || undefined,
+        files: analyzableFiles.map((file) => ({ name: file.name, content: file.extracted_text })),
+      },
+    );
+    setClarificationMessages((current) => [...current, {
+      role: 'assistant',
+      text: result.success ? result.data.reply : result.error,
+    }]);
+    setClarificationAsking(false);
   };
 
   const removeFile = async (file: StoredWorkspaceFile) => {
@@ -402,10 +434,40 @@ export function LearningWorkspace({ onNavigate, initialTab = 'notes', initialSet
               <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-sm font-semibold text-white">Erkannte Aufgaben zur Bestätigung</h3><button onClick={() => void confirmTasks()} disabled={confirmingTasks} className="flex items-center gap-1 rounded-lg bg-cyan-500 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"><Check size={14} /> {confirmingTasks ? 'Speichert ...' : 'Fristen bestätigen'}</button></div>
               <div className="mt-2 space-y-2">{analysis.tasks.map((task, index) => <div key={`${task.title}-${index}`} className="rounded-lg border border-white/10 bg-black/10 p-3"><p className="text-sm font-medium text-white">{task.title}</p><p className="mt-1 text-xs text-gray-400">{task.task_type === 'exam' ? 'Prüfung' : 'Aufgabe'} · {task.subject} · {task.due_date ? `Frist ${task.due_date}` : 'Frist offen'} · Sicherheit {Math.round(task.confidence * 100)}%</p></div>)}</div>
             </div>}
-            {analysis.uncertainties.length > 0 && <div className="rounded-xl border border-amber-400/20 bg-amber-400/5 p-3"><p className="flex items-center gap-2 text-xs font-semibold text-amber-200"><AlertTriangle size={15} /> Offene Rückfragen</p><ul className="mt-2 space-y-1 text-xs text-amber-100/80">{analysis.uncertainties.map((item) => <li key={item}>· {item}</li>)}</ul></div>}
+            {analysis.uncertainties.length > 0 && <div className="rounded-xl border border-amber-400/20 bg-amber-400/5 p-3"><div className="flex items-center justify-between gap-3"><p className="flex items-center gap-2 text-xs font-semibold text-amber-200"><AlertTriangle size={15} /> Offene Rückfragen</p><button onClick={() => setClarificationOpen(true)} className="flex items-center gap-1 rounded-lg bg-amber-400/15 px-2.5 py-1.5 text-xs font-semibold text-amber-100 hover:bg-amber-400/25"><MessageCircle size={13} /> Im Chat beantworten</button></div><ul className="mt-2 space-y-1 text-xs text-amber-100/80">{analysis.uncertainties.map((item) => <li key={item}>· {item}</li>)}</ul></div>}
           </div>
         )}
       </section>
+
+      {clarificationOpen && analysis && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-4 sm:items-center" role="dialog" aria-modal="true" aria-labelledby="clarification-title">
+          <div className="flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-amber-400/20 bg-[#11121b] shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-white/10 p-5">
+              <div>
+                <div className="flex items-center gap-2 text-amber-200"><MessageCircle size={18} /><h2 id="clarification-title" className="font-semibold">Rückfragen zur Analyse</h2></div>
+                <p className="mt-1 text-xs text-gray-400">Antworte direkt auf die offenen Punkte. Du kannst danach die Analyse erneut starten.</p>
+              </div>
+              <button onClick={() => setClarificationOpen(false)} className="rounded-lg p-1 text-gray-400 hover:bg-white/10 hover:text-white" aria-label="Rückfragen schließen"><X size={18} /></button>
+            </div>
+            <div className="space-y-3 overflow-y-auto p-5">
+              <div className="rounded-xl border border-amber-400/15 bg-amber-400/5 p-3">
+                <p className="text-xs font-semibold text-amber-200">Noch offene Punkte</p>
+                <ul className="mt-2 space-y-1 text-sm text-amber-100/80">{analysis.uncertainties.map((item) => <li key={item}>· {item}</li>)}</ul>
+              </div>
+              {clarificationMessages.map((message, index) => (
+                <div key={`${message.role}-${index}`} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  <p className={`max-w-[90%] rounded-xl px-3 py-2 text-sm ${message.role === 'user' ? 'bg-cyan-500/20 text-cyan-100' : 'bg-white/[0.05] text-gray-300'}`}>{message.text}</p>
+                </div>
+              ))}
+              {clarificationAsking && <div className="flex items-center gap-2 text-xs text-gray-500"><Loader2 size={14} className="animate-spin" /> Antwort wird eingeordnet ...</div>}
+            </div>
+            <div className="flex gap-2 border-t border-white/10 p-4">
+              <input value={clarificationInput} onChange={(event) => setClarificationInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void askClarification(); }} placeholder="z. B. Die Prüfung ist am 15. Juni ..." className="min-w-0 flex-1 rounded-xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none placeholder:text-gray-600 focus:border-amber-400/50" />
+              <button onClick={() => void askClarification()} disabled={clarificationAsking || !clarificationInput.trim()} className="rounded-xl bg-amber-400 px-4 text-black transition-all hover:bg-amber-300 disabled:opacity-50" aria-label="Antwort senden"><Send size={17} /></button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <section className="mt-5 rounded-2xl border border-cyan-400/10 bg-gradient-to-br from-cyan-500/[0.07] to-blue-500/[0.03] p-5">
         <div className="flex items-center gap-3">

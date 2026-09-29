@@ -499,6 +499,9 @@ function AdminUsersPanel() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [updating, setUpdating] = useState<string | null>(null);
+  const [editingLimit, setEditingLimit] = useState<string | null>(null);
+  const [limitValue, setLimitValue] = useState('');
+  const [error, setError] = useState<string | null>(null);
 
   const fetchUsers = useCallback(async () => {
     setLoading(true);
@@ -515,8 +518,14 @@ function AdminUsersPanel() {
   useEffect(() => { fetchUsers(); }, [fetchUsers]);
 
   const handleRoleChange = async (userId: string, newRole: 'user' | 'admin') => {
+    if (userId === currentUser?.id) return;
     setUpdating(userId);
-    await supabase.from('profiles').update({ role: newRole }).eq('id', userId);
+    const { error: updateError } = await supabase.from('profiles').update({ role: newRole }).eq('id', userId);
+    if (updateError) {
+      setError('Role konnte nicht geändert werden.');
+      setUpdating(null);
+      return;
+    }
 
     // Log the action
     if (currentUser) {
@@ -534,6 +543,70 @@ function AdminUsersPanel() {
     setUpdating(null);
   };
 
+  const handleBanChange = async (target: Profile) => {
+    if (target.id === currentUser?.id) return;
+    setUpdating(target.id);
+    setError(null);
+    const nextBanned = !target.is_banned;
+    const { error: updateError } = await supabase
+      .from('profiles')
+      .update({ is_banned: nextBanned })
+      .eq('id', target.id);
+    if (updateError) {
+      setError('Sperrstatus konnte nicht geändert werden.');
+      setUpdating(null);
+      return;
+    }
+    if (currentUser) {
+      await supabase.from('admin_audit_log').insert({
+        admin_id: currentUser.id,
+        action: nextBanned ? 'user_banned' : 'user_unbanned',
+        target_id: target.id,
+        target_type: 'profile',
+        details: { role: target.role },
+      });
+    }
+    setUsers((prev) => prev.map((u) => u.id === target.id ? { ...u, is_banned: nextBanned } : u));
+    setUpdating(null);
+  };
+
+  const startLimitEdit = (target: Profile) => {
+    setEditingLimit(target.id);
+    setLimitValue(String(target.ai_weekly_limit));
+    setError(null);
+  };
+
+  const saveLimit = async (target: Profile) => {
+    const nextLimit = Number(limitValue);
+    if (!Number.isInteger(nextLimit) || nextLimit < 0 || nextLimit > 100000) {
+      setError('Das Wochenlimit muss eine ganze Zahl zwischen 0 und 100000 sein.');
+      return;
+    }
+    setUpdating(target.id);
+    setError(null);
+    const { error: updateError } = await supabase
+      .from('profiles')
+      .update({ ai_weekly_limit: nextLimit })
+      .eq('id', target.id);
+    if (updateError) {
+      setError('AI-Limit konnte nicht gespeichert werden.');
+      setUpdating(null);
+      return;
+    }
+    if (currentUser) {
+      await supabase.from('admin_audit_log').insert({
+        admin_id: currentUser.id,
+        action: 'ai_limit_change',
+        target_id: target.id,
+        target_type: 'profile',
+        details: { ai_weekly_limit: nextLimit },
+      });
+    }
+    setUsers((prev) => prev.map((u) => u.id === target.id ? { ...u, ai_weekly_limit: nextLimit } : u));
+    setEditingLimit(null);
+    setUpdating(null);
+  };
+
   const filtered = users.filter((u) => {
     if (!search) return true;
     return u.display_name.toLowerCase().includes(search.toLowerCase()) || u.id.includes(search);
@@ -542,7 +615,8 @@ function AdminUsersPanel() {
   return (
     <div>
       <h2 className="text-xl font-bold text-white">User Management</h2>
-      <p className="mt-1 text-sm text-gray-400">View and manage user roles across the platform</p>
+      <p className="mt-1 text-sm text-gray-400">Manage roles, AI access limits, and account bans across the platform</p>
+      {error && <p className="mt-3 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm text-red-300">{error}</p>}
 
       <div className="mt-5">
         <div className="relative">
@@ -591,6 +665,7 @@ function AdminUsersPanel() {
                 <th className="hidden px-4 py-3 font-medium md:table-cell">Cards Learned</th>
                 <th className="hidden px-4 py-3 font-medium lg:table-cell">Joined</th>
                 <th className="px-4 py-3 font-medium">Role</th>
+                <th className="hidden px-4 py-3 font-medium sm:table-cell">AI / week</th>
                 <th className="px-4 py-3 text-right font-medium">Actions</th>
               </tr>
             </thead>
@@ -623,15 +698,49 @@ function AdminUsersPanel() {
                     }`}>
                       {u.role === 'admin' ? 'Admin' : 'User'}
                     </span>
+                    {u.is_banned && <span className="ml-2 rounded-md bg-red-500/15 px-2 py-0.5 text-xs font-medium text-red-300">Banned</span>}
+                  </td>
+                  <td className="hidden px-4 py-3 sm:table-cell">
+                    {u.role === 'admin' ? (
+                      <span className="text-xs text-cyan-300">Unlimited</span>
+                    ) : editingLimit === u.id ? (
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="number"
+                          min="0"
+                          max="100000"
+                          value={limitValue}
+                          onChange={(event) => setLimitValue(event.target.value)}
+                          className="w-20 rounded border border-white/10 bg-white/5 px-2 py-1 text-xs text-white"
+                        />
+                        <button onClick={() => saveLimit(u)} className="rounded p-1 text-emerald-300 hover:bg-white/10"><Check size={14} /></button>
+                        <button onClick={() => setEditingLimit(null)} className="rounded p-1 text-gray-400 hover:bg-white/10"><X size={14} /></button>
+                      </div>
+                    ) : (
+                      <button onClick={() => startLimitEdit(u)} className="text-gray-300 underline decoration-dotted underline-offset-2 hover:text-white">
+                        {u.ai_weekly_limit}
+                      </button>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-right">
                     {updating === u.id ? (
                       <Loader2 size={16} className="animate-spin text-gray-400 inline-block" />
                     ) : (
-                      <RoleDropdown
-                        currentRole={u.role}
-                        onChange={(r) => handleRoleChange(u.id, r)}
-                      />
+                      <div className="flex items-center justify-end gap-2">
+                        <RoleDropdown currentRole={u.role} onChange={(r) => handleRoleChange(u.id, r)} />
+                        {u.id !== currentUser?.id && (
+                          <button
+                            onClick={() => handleBanChange(u)}
+                            className={`rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-all ${
+                              u.is_banned
+                                ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20'
+                                : 'border-red-500/20 bg-red-500/10 text-red-300 hover:bg-red-500/20'
+                            }`}
+                          >
+                            {u.is_banned ? 'Unban' : 'Ban'}
+                          </button>
+                        )}
+                      </div>
                     )}
                   </td>
                 </tr>

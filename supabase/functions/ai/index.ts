@@ -57,7 +57,7 @@ const SUPPORTED_ACTIONS = [
   "homework_help",
 ] as const satisfies readonly AIAction[];
 
-const MAX_WEEKLY_ACTIONS = 50;
+const DEFAULT_WEEKLY_ACTION_LIMIT = 200;
 const MAX_INPUT_LENGTH = 20_000;
 const MAX_NOTES_LENGTH = 20_000;
 const MAX_FILES = 10;
@@ -73,8 +73,13 @@ const MAX_TASK_FIELD_LENGTH = 2_000;
 const AI_DEFAULT_MODELS = {
   openai: "gpt-4o-mini",
   gemini: "gemini-1.5-flash",
-  openrouter: "openai/gpt-oss-20b:free",
+  openrouter: "openrouter/free",
 } as const;
+const OPENROUTER_FALLBACK_MODELS = [
+  "openai/gpt-4o-mini",
+  "google/gemini-2.0-flash-exp:free",
+  "meta-llama/llama-3.1-8b-instruct:free",
+] as const;
 const AI_PROVIDERS = ["openai", "gemini", "openrouter"] as const;
 type AIProvider = typeof AI_PROVIDERS[number];
 
@@ -451,6 +456,37 @@ Deno.serve(async (req: Request) => {
       return jsonError("Unauthorized", 401);
     }
 
+    const { data: profileWithControls, error: profileError } = await adminClient
+      .from("profiles")
+      .select("role, ai_weekly_limit, is_banned")
+      .eq("id", user.id)
+      .maybeSingle();
+    let profile = profileWithControls;
+    if (profileError && (
+      profileError.code === "42703" ||
+      /ai_weekly_limit|is_banned|column .* does not exist/i.test(profileError.message)
+    )) {
+      // Keep the existing AI endpoint usable while an older deployment is
+      // waiting for the optional admin-controls migration.
+      const legacyProfileResult = await adminClient
+        .from("profiles")
+        .select("role")
+        .eq("id", user.id)
+        .maybeSingle();
+      if (legacyProfileResult.error) {
+        return jsonError("Unable to verify account access", 503);
+      }
+      profile = legacyProfileResult.data
+        ? { ...legacyProfileResult.data, ai_weekly_limit: DEFAULT_WEEKLY_ACTION_LIMIT, is_banned: false }
+        : null;
+    }
+    if ((profileError && !profile) || !profile) {
+      return jsonError("Unable to verify account access", 503);
+    }
+    if (profile.is_banned) {
+      return jsonError("Your account has been suspended. Please contact an administrator.", 403);
+    }
+
     // Read API key from app_settings (server-side only — never returned to client)
     const { data: settings, error: settingsError } = await adminClient
       .from("app_settings")
@@ -474,18 +510,23 @@ Deno.serve(async (req: Request) => {
       return jsonError(`Invalid request: ${(error as Error).message}`, 400);
     }
 
-    // Keep the existing usage log as a small per-user weekly safety limit.
+    // Admins are trusted operators and do not consume the regular user quota.
     const usageSince = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-    const { count: weeklyUsage, error: usageError } = await adminClient
-      .from("ai_usage_log")
-      .select("id", { count: "exact", head: true })
-      .eq("user_id", user.id)
-      .gte("created_at", usageSince);
-    if (usageError) {
-      return jsonError("Unable to verify AI usage limit", 503);
-    }
-    if ((weeklyUsage ?? 0) >= MAX_WEEKLY_ACTIONS) {
-      return jsonError(`Weekly AI usage limit reached (${MAX_WEEKLY_ACTIONS} requests). Please try again later.`, 429);
+    if (profile.role !== "admin") {
+      const configuredLimit = Number.isInteger(profile.ai_weekly_limit)
+        ? profile.ai_weekly_limit
+        : DEFAULT_WEEKLY_ACTION_LIMIT;
+      const { count: weeklyUsage, error: usageError } = await adminClient
+        .from("ai_usage_log")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", user.id)
+        .gte("created_at", usageSince);
+      if (usageError) {
+        return jsonError("Unable to verify AI usage limit", 503);
+      }
+      if ((weeklyUsage ?? 0) >= configuredLimit) {
+        return jsonError(`Weekly AI usage limit reached (${configuredLimit} requests). Please try again later.`, 429);
+      }
     }
 
     // --- Build the AI API call ---
@@ -618,6 +659,29 @@ async function callGemini(apiKey: string, model: string, systemPrompt: string, u
 }
 
 async function callOpenRouter(apiKey: string, model: string, systemPrompt: string, userPrompt: string): Promise<{ text: string; tokens: number }> {
+  const attempts = [model, ...OPENROUTER_FALLBACK_MODELS.filter((candidate) => candidate !== model)];
+  let lastError: Error | undefined;
+
+  for (const candidate of attempts) {
+    try {
+      return await callOpenRouterOnce(apiKey, candidate, systemPrompt, userPrompt);
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      if (!(error instanceof AIProviderError)) {
+        continue;
+      }
+      const isRecoverable = error.status === 429 || error.status === 402 || error.status === 403 || error.status === 400;
+      if (!isRecoverable) {
+        throw error;
+      }
+    }
+  }
+
+  if (lastError) throw lastError;
+  throw new AIProviderError("openrouter", 502, `OpenRouter failed for model "${model}"`);
+}
+
+async function callOpenRouterOnce(apiKey: string, model: string, systemPrompt: string, userPrompt: string): Promise<{ text: string; tokens: number }> {
   const headers: Record<string, string> = { "Content-Type": "application/json", "Authorization": "Bearer " + apiKey };
   const referer = Deno.env.get("OPENROUTER_HTTP_REFERER");
   const title = Deno.env.get("OPENROUTER_X_TITLE");
@@ -645,7 +709,7 @@ async function callOpenRouter(apiKey: string, model: string, systemPrompt: strin
     const detail = safeMessage ? `: ${safeMessage}` : "";
     throw new AIProviderError(
       "openrouter",
-      502,
+      res.status,
       `OpenRouter rejected model "${model}" (HTTP ${res.status})${detail}`,
     );
   }
