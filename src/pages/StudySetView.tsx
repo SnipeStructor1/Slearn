@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { ArrowLeft, Layers, HelpCircle, MessageSquare, Lock, Save, Check, Trash2, Palette } from 'lucide-react';
+import { useEffect, useState, type FormEvent } from 'react';
+import { ArrowLeft, Layers, HelpCircle, MessageSquare, Lock, Save, Check, Trash2, Palette, Plus, X, Loader2 } from 'lucide-react';
 import { supabase, type StudySet, type Flashcard } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth-context';
 import { getTheme, getIcon } from '@/lib/themes';
@@ -26,6 +26,11 @@ export function StudySetView({ setId, onBack }: Props) {
   const [isSaved, setIsSaved] = useState(false);
   const [isOwner, setIsOwner] = useState(false);
   const [customizeOpen, setCustomizeOpen] = useState(false);
+  const [addCardOpen, setAddCardOpen] = useState(false);
+  const [newCardFront, setNewCardFront] = useState('');
+  const [newCardBack, setNewCardBack] = useState('');
+  const [addingCard, setAddingCard] = useState(false);
+  const [addCardError, setAddCardError] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -96,6 +101,48 @@ export function StudySetView({ setId, onBack }: Props) {
           .eq('id', user.id);
         refreshProfile();
       }
+    }
+  };
+
+  const handleAddCard = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const front = newCardFront.trim();
+    const back = newCardBack.trim();
+    if (!set || !user || !isOwner || !front || !back) return;
+
+    setAddingCard(true);
+    setAddCardError(null);
+    try {
+      const { data: newCard, error: insertError } = await supabase
+        .from('flashcards')
+        .insert({ set_id: set.id, front, back })
+        .select()
+        .single();
+
+      if (insertError || !newCard) {
+        setAddCardError(`Card could not be added: ${insertError?.message || 'No card was returned.'}`);
+        return;
+      }
+
+      const updatedCount = cards.length + 1;
+      setCards((previous) => [...previous, newCard as Flashcard]);
+      setSet((previous) => previous ? { ...previous, card_count: updatedCount } : previous);
+      setAddCardOpen(false);
+      setNewCardFront('');
+      setNewCardBack('');
+
+      const { error: countError } = await supabase
+        .from('study_sets')
+        .update({ card_count: updatedCount })
+        .eq('id', set.id)
+        .eq('user_id', user.id);
+      if (countError) {
+        setAddCardError(`Card was added, but the set's card count could not be updated: ${countError.message}`);
+      }
+    } catch (error) {
+      setAddCardError(`Card could not be added: ${error instanceof Error ? error.message : 'Unexpected error.'}`);
+    } finally {
+      setAddingCard(false);
     }
   };
 
@@ -251,13 +298,29 @@ export function StudySetView({ setId, onBack }: Props) {
 
           <div className="mt-6 flex items-center justify-between">
             <h3 className="text-sm font-semibold text-white">{cards.length} Flashcards</h3>
-            <button
-              onClick={() => setTutorOpen(true)}
-              className="flex items-center gap-1.5 rounded-lg border border-violet-500/30 bg-violet-500/10 px-3 py-2 text-sm text-violet-300 hover:bg-violet-500/20 transition-all"
-            >
-              <MessageSquare size={15} /> Ask AI Tutor
-            </button>
+            <div className="flex items-center gap-2">
+              {isOwner && (
+                <button
+                  onClick={() => { setAddCardError(null); setAddCardOpen(true); }}
+                  className="flex items-center gap-1.5 rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-3 py-2 text-sm text-cyan-200 hover:bg-cyan-500/20 transition-all"
+                >
+                  <Plus size={15} /> Add card
+                </button>
+              )}
+              <button
+                onClick={() => setTutorOpen(true)}
+                className="flex items-center gap-1.5 rounded-lg border border-violet-500/30 bg-violet-500/10 px-3 py-2 text-sm text-violet-300 hover:bg-violet-500/20 transition-all"
+              >
+                <MessageSquare size={15} /> Ask AI Tutor
+              </button>
+            </div>
           </div>
+
+          {addCardError && !addCardOpen && (
+            <p role="alert" className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">
+              {addCardError}
+            </p>
+          )}
 
           <div className="mt-3 space-y-2">
             {cards.slice(0, 5).map((card, i) => (
@@ -319,6 +382,63 @@ export function StudySetView({ setId, onBack }: Props) {
           currentIcon={set.icon_name}
           onApply={handleCustomize}
         />
+      )}
+
+      {isOwner && addCardOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" role="presentation">
+          <form
+            onSubmit={(event) => void handleAddCard(event)}
+            className="w-full max-w-lg rounded-2xl border border-white/10 bg-[#12121a] p-6 shadow-2xl"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="add-card-title"
+          >
+            <div className="flex items-center justify-between">
+              <h2 id="add-card-title" className="text-lg font-semibold text-white">Add a flashcard</h2>
+              <button type="button" onClick={() => setAddCardOpen(false)} aria-label="Close" className="text-gray-400 hover:text-white">
+                <X size={18} />
+              </button>
+            </div>
+            <label className="mt-5 block text-sm font-medium text-gray-300" htmlFor="new-card-front">Front / question</label>
+            <textarea
+              id="new-card-front"
+              value={newCardFront}
+              onChange={(event) => setNewCardFront(event.target.value)}
+              rows={2}
+              required
+              maxLength={2000}
+              className="mt-2 w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none focus:border-cyan-400/50"
+            />
+            <label className="mt-4 block text-sm font-medium text-gray-300" htmlFor="new-card-back">Back / answer</label>
+            <textarea
+              id="new-card-back"
+              value={newCardBack}
+              onChange={(event) => setNewCardBack(event.target.value)}
+              rows={2}
+              required
+              maxLength={2000}
+              className="mt-2 w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none focus:border-cyan-400/50"
+            />
+            {addCardError && <p role="alert" className="mt-3 text-sm text-red-300">{addCardError}</p>}
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setAddCardOpen(false)}
+                className="rounded-lg border border-white/10 px-4 py-2 text-sm text-gray-300 hover:bg-white/5"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={addingCard || !newCardFront.trim() || !newCardBack.trim()}
+                className="flex items-center gap-2 rounded-lg bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-500 disabled:opacity-50"
+              >
+                {addingCard && <Loader2 size={15} className="animate-spin" />}
+                Add card
+              </button>
+            </div>
+          </form>
+        </div>
       )}
     </div>
   );
