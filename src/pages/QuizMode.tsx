@@ -8,7 +8,7 @@ type Props = {
   onAskTutor: (card: { front: string; back: string }) => void;
 };
 
-type QuestionType = 'multiple-choice' | 'fill-blank';
+type QuestionType = 'multiple-choice' | 'typing' | 'fill-blank';
 
 type Question = {
   type: QuestionType;
@@ -18,7 +18,7 @@ type Question = {
   correctAnswer: string;
 };
 
-function shuffle<T>(arr: T[]): T[] {
+export function shuffleArray<T>(arr: T[]): T[] {
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -31,15 +31,15 @@ function generateLocalQuiz(cards: Flashcard[]): Question[] {
   if (cards.length < 2) return [];
 
   const questions: Question[] = [];
-  const shuffledCards = shuffle(cards);
+  const shuffledCards = shuffleArray(cards);
 
   shuffledCards.forEach((card, i) => {
     if (i % 2 === 0) {
       // Multiple choice: show front, pick the correct back
-      const wrongOptions = shuffle(cards.filter((c) => c.id !== card.id))
+      const wrongOptions = shuffleArray(cards.filter((c) => c.id !== card.id))
         .slice(0, 3)
         .map((c) => c.back);
-      const options = shuffle([card.back, ...wrongOptions]);
+      const options = shuffleArray([card.back, ...wrongOptions]);
       questions.push({
         type: 'multiple-choice',
         card,
@@ -62,10 +62,10 @@ function generateLocalQuiz(cards: Flashcard[]): Question[] {
         });
       } else {
         // Fallback to multiple choice
-        const wrongOptions = shuffle(cards.filter((c) => c.id !== card.id))
+        const wrongOptions = shuffleArray(cards.filter((c) => c.id !== card.id))
           .slice(0, 3)
           .map((c) => c.back);
-        const options = shuffle([card.back, ...wrongOptions]);
+        const options = shuffleArray([card.back, ...wrongOptions]);
         questions.push({
           type: 'multiple-choice',
           card,
@@ -80,40 +80,94 @@ function generateLocalQuiz(cards: Flashcard[]): Question[] {
   return questions;
 }
 
+function normalizeAnswer(answer: string): string {
+  return answer.trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
 export function QuizMode({ cards, onAskTutor }: Props) {
   const [questions, setQuestions] = useState<Question[]>([]);
+  const [questionLimit, setQuestionLimit] = useState<number | 'all' | null>(null);
   const [current, setCurrent] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
   const [textAnswer, setTextAnswer] = useState('');
   const [answered, setAnswered] = useState(false);
   const [score, setScore] = useState(0);
   const [finished, setFinished] = useState(false);
-  const [generating, setGenerating] = useState(true);
+  const [generating, setGenerating] = useState(false);
 
   useEffect(() => {
+    if (questionLimit === null) return;
     let cancelled = false;
+    setGenerating(true);
     void (async () => {
+      const requestedCount = questionLimit === 'all'
+        ? cards.length
+        : Math.min(cards.length, questionLimit);
       const result = await generateAIQuiz(
         'Erstelle einen Quiz zu diesen Lernkarten.',
         { flashcards: cards.map(({ front, back }) => ({ front, back })) },
-        Math.min(cards.length, 20),
+        requestedCount,
       );
       if (cancelled) return;
       if (result.success) {
-        setQuestions(result.data.questions.map((question, index) => ({
-          type: 'multiple-choice',
-          card: cards[index % cards.length],
-          prompt: question.question,
-          options: question.options,
-          correctAnswer: question.options[question.correct_index] || question.options[0],
-        })));
+        const aiQuestions = result.data.questions.slice(0, requestedCount);
+        const normalizedQuestions = aiQuestions.map((question, index) => {
+          const options = shuffleArray(question.options);
+          const correctAnswer = question.options[question.correct_index] || question.options[0];
+          return {
+            type: question.type === 'typing' || (question.type !== 'fill-blank' && index % 3 === 2)
+              ? 'typing' as const
+              : question.type === 'fill-blank'
+                ? 'fill-blank' as const
+                : 'multiple-choice' as const,
+            card: cards[index % cards.length],
+            prompt: question.question,
+            options,
+            correctAnswer,
+          };
+        });
+        if (normalizedQuestions.length < requestedCount) {
+          const localQuestions = generateLocalQuiz(cards);
+          normalizedQuestions.push(...localQuestions.slice(normalizedQuestions.length, requestedCount));
+        }
+        setQuestions(normalizedQuestions);
       } else {
-        setQuestions(generateLocalQuiz(cards));
+        setQuestions(generateLocalQuiz(cards).slice(0, requestedCount));
       }
       setGenerating(false);
     })();
     return () => { cancelled = true; };
-  }, [cards]);
+  }, [cards, questionLimit]);
+
+  if (questionLimit === null) {
+    return (
+      <div className="mx-auto mt-8 max-w-2xl rounded-2xl border border-white/10 bg-white/[0.02] p-8">
+        <h2 className="text-xl font-semibold text-white">Choose quiz length</h2>
+        <p className="mt-2 text-sm text-gray-400">{cards.length} flashcards available</p>
+        <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {[10, 20, 50].filter((count) => count < cards.length).map((count) => (
+            <button
+              key={count}
+              onClick={() => setQuestionLimit(count)}
+              className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-white transition-all hover:border-cyan-400/40 hover:bg-cyan-500/10 disabled:opacity-40"
+            >
+              {count} questions
+            </button>
+          ))}
+          <button
+            onClick={() => setQuestionLimit('all')}
+            disabled={cards.length < 2}
+            className="rounded-xl border border-cyan-400/30 bg-cyan-500/10 px-4 py-3 text-sm font-semibold text-cyan-200 transition-all hover:bg-cyan-500/20 disabled:opacity-40"
+          >
+            All ({cards.length})
+          </button>
+        </div>
+        {cards.length < 2 && (
+          <p className="mt-4 text-sm text-gray-400">Need at least 2 flashcards to generate a quiz.</p>
+        )}
+      </div>
+    );
+  }
 
   if (generating) {
     return (
@@ -138,12 +192,12 @@ export function QuizMode({ cards, onAskTutor }: Props) {
     if (question.type === 'multiple-choice') {
       if (!selectedAnswer) return;
       const isCorrect = selectedAnswer === question.correctAnswer;
-      if (isCorrect) setScore(score + 1);
+      if (isCorrect) setScore((previous) => previous + 1);
       setAnswered(true);
     } else {
       if (!textAnswer.trim()) return;
-      const isCorrect = textAnswer.trim().toLowerCase() === question.correctAnswer.toLowerCase();
-      if (isCorrect) setScore(score + 1);
+      const isCorrect = normalizeAnswer(textAnswer) === normalizeAnswer(question.correctAnswer);
+      if (isCorrect) setScore((previous) => previous + 1);
       setAnswered(true);
     }
   };
@@ -228,7 +282,9 @@ export function QuizMode({ cards, onAskTutor }: Props) {
                 ? 'bg-cyan-500/10 text-cyan-300'
                 : 'bg-emerald-500/10 text-emerald-300'
             }`}>
-              {question.type === 'multiple-choice' ? 'Multiple Choice' : 'Fill in the Blank'}
+              {question.type === 'multiple-choice'
+                ? 'Multiple Choice'
+                : question.type === 'typing' ? 'Typing' : 'Fill in the Blank'}
             </span>
           </div>
           <p className="text-xl font-semibold text-white">{question.prompt}</p>
@@ -271,7 +327,7 @@ export function QuizMode({ cards, onAskTutor }: Props) {
             </div>
           )}
 
-          {question.type === 'fill-blank' && (
+          {(question.type === 'fill-blank' || question.type === 'typing') && (
             <div>
               <input
                 type="text"
@@ -282,7 +338,7 @@ export function QuizMode({ cards, onAskTutor }: Props) {
                 placeholder="Type your answer..."
                 className={`w-full rounded-xl border px-5 py-3.5 text-sm text-white placeholder-gray-500 outline-none transition-all ${
                   answered
-                    ? textAnswer.trim().toLowerCase() === question.correctAnswer.toLowerCase()
+                    ? normalizeAnswer(textAnswer) === normalizeAnswer(question.correctAnswer)
                       ? 'border-emerald-500/40 bg-emerald-500/10'
                       : 'border-red-500/40 bg-red-500/10'
                     : 'border-white/10 bg-white/5 focus:border-cyan-400/50 focus:ring-2 focus:ring-cyan-400/20'

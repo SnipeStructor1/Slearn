@@ -23,6 +23,7 @@ export type AIAction =
   | 'homework_help';
 
 export type QuizQuestion = {
+  type?: 'multiple-choice' | 'typing' | 'fill-blank';
   question: string;
   options: string[];
   correct_index: number;
