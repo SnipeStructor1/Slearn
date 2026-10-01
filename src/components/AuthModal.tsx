@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { X, Mail, Lock, User as UserIcon, Loader2 } from 'lucide-react';
+import { X, Mail, Lock, User as UserIcon, Loader2, ArrowRight, ShieldCheck } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 
 type Props = {
@@ -65,17 +65,20 @@ export function AuthModal({ open, onClose }: Props) {
           <X size={20} />
         </button>
 
+        <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-cyan-400 to-blue-600 shadow-lg shadow-cyan-500/20">
+          <ShieldCheck size={24} className="text-white" />
+        </div>
         <h2 className="text-2xl font-bold text-white">
-          {mode === 'signin' ? 'Welcome back' : 'Create your account'}
+          {mode === 'signin' ? 'Willkommen zurück' : 'Konto erstellen'}
         </h2>
-        <p className="mt-1 text-sm text-gray-400">
-          {mode === 'signin' ? 'Sign in to continue learning' : 'Start your AI-powered study journey'}
+        <p className="mt-1 text-sm leading-6 text-gray-400">
+          {mode === 'signin' ? 'Melde dich an und lerne direkt in deinem privaten Workspace weiter.' : 'Erstelle dein kostenloses Konto und starte deine persönliche Lernreise.'}
         </p>
 
         <form onSubmit={handleSubmit} className="mt-6 space-y-4">
           {mode === 'signup' && (
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-gray-300">Display Name</label>
+              <label className="mb-1.5 block text-sm font-medium text-gray-300">Dein Name</label>
               <div className="relative">
                 <UserIcon size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
                 <input
@@ -83,14 +86,14 @@ export function AuthModal({ open, onClose }: Props) {
                   value={displayName}
                   onChange={(e) => setDisplayName(e.target.value)}
                   className="w-full rounded-lg border border-white/10 bg-white/5 py-2.5 pl-10 pr-4 text-sm text-white placeholder-gray-500 outline-none transition-all focus:border-cyan-400/50 focus:ring-2 focus:ring-cyan-400/20"
-                  placeholder="Alex Johnson"
+                  placeholder="Alex Müller"
                 />
               </div>
             </div>
           )}
 
           <div>
-            <label className="mb-1.5 block text-sm font-medium text-gray-300">Email</label>
+            <label className="mb-1.5 block text-sm font-medium text-gray-300">E-Mail-Adresse</label>
             <div className="relative">
               <Mail size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
               <input
@@ -99,13 +102,13 @@ export function AuthModal({ open, onClose }: Props) {
                 onChange={(e) => setEmail(e.target.value)}
                 required
                 className="w-full rounded-lg border border-white/10 bg-white/5 py-2.5 pl-10 pr-4 text-sm text-white placeholder-gray-500 outline-none transition-all focus:border-cyan-400/50 focus:ring-2 focus:ring-cyan-400/20"
-                placeholder="you@example.com"
+                placeholder="du@beispiel.de"
               />
             </div>
           </div>
 
           <div>
-            <label className="mb-1.5 block text-sm font-medium text-gray-300">Password</label>
+            <label className="mb-1.5 block text-sm font-medium text-gray-300">Passwort</label>
             <div className="relative">
               <Lock size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
               <input
@@ -114,7 +117,7 @@ export function AuthModal({ open, onClose }: Props) {
                 onChange={(e) => setPassword(e.target.value)}
                 required
                 className="w-full rounded-lg border border-white/10 bg-white/5 py-2.5 pl-10 pr-4 text-sm text-white placeholder-gray-500 outline-none transition-all focus:border-cyan-400/50 focus:ring-2 focus:ring-cyan-400/20"
-                placeholder="••••••••"
+                placeholder="Mindestens 6 Zeichen"
               />
             </div>
           </div>
@@ -131,12 +134,13 @@ export function AuthModal({ open, onClose }: Props) {
             className="flex w-full items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 py-2.5 text-sm font-semibold text-white shadow-lg shadow-cyan-500/20 transition-all hover:brightness-110 disabled:opacity-50"
           >
             {loading && <Loader2 size={18} className="animate-spin" />}
-            {mode === 'signin' ? 'Sign In' : 'Create Account'}
+            {mode === 'signin' ? 'Anmelden' : 'Kostenlos registrieren'}
+            <ArrowRight size={17} />
           </button>
         </form>
 
         <p className="mt-6 text-center text-sm text-gray-400">
-          {mode === 'signin' ? "Don't have an account? " : 'Already have an account? '}
+          {mode === 'signin' ? 'Noch kein Konto? ' : 'Schon registriert? '}
           <button
             onClick={() => {
               setMode(mode === 'signin' ? 'signup' : 'signin');
@@ -144,7 +148,7 @@ export function AuthModal({ open, onClose }: Props) {
             }}
             className="font-semibold text-cyan-400 hover:text-cyan-300"
           >
-            {mode === 'signin' ? 'Sign up' : 'Sign in'}
+            {mode === 'signin' ? 'Jetzt registrieren' : 'Anmelden'}
           </button>
         </p>
       </div>

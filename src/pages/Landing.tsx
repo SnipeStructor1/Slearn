@@ -63,6 +63,10 @@ const steps = [
 ];
 
 export function Landing({ onGetStarted }: Props) {
+  const scrollToExplanation = () => {
+    document.getElementById('how-it-works')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
   return (
     <div className="min-h-screen">
       {/* Hero */}
@@ -98,12 +102,13 @@ export function Landing({ onGetStarted }: Props) {
                 Jetzt starten
                 <ArrowRight size={18} className="transition-transform group-hover:translate-x-1" />
               </button>
-              <a
-                href="#how-it-works"
-                className="rounded-xl border border-white/10 bg-white/5 px-8 py-3.5 text-base font-semibold text-white transition-all hover:bg-white/10"
+              <button
+                type="button"
+                onClick={scrollToExplanation}
+                className="rounded-xl border border-white/10 bg-white/5 px-8 py-3.5 text-base font-semibold text-white transition-all hover:border-cyan-400/30 hover:bg-white/10"
               >
                 So funktioniert's
-              </a>
+              </button>
             </div>
           </div>
         </div>
