@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  AlertTriangle, Bot, Check, FileText, Loader2, Paperclip, Send, Sparkles, Upload, X, Layers3, Save, MessageCircle,
+  AlertTriangle, Bot, Check, FileText, Loader2, Paperclip, Send, Sparkles, Upload, X, Save, MessageCircle,
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import { getGreetingName } from '@/lib/auth-context';
@@ -14,11 +14,12 @@ import { StudySetView } from './StudySetView';
 
 type Props = {
   onNavigate: (page: 'create') => void;
+  onOpenSet?: (setId: string) => void;
   initialTab?: 'notes' | 'flashcards';
   initialSetId?: string | null;
 };
 
-export function LearningWorkspace({ onNavigate, initialTab = 'notes', initialSetId = null }: Props) {
+export function LearningWorkspace({ onNavigate, onOpenSet, initialTab = 'notes', initialSetId = null }: Props) {
   const { user, profile } = useAuth();
   const [notes, setNotes] = useState('');
   const [files, setFiles] = useState<StoredWorkspaceFile[]>([]);
@@ -27,7 +28,6 @@ export function LearningWorkspace({ onNavigate, initialTab = 'notes', initialSet
   const [selectedSetId, setSelectedSetId] = useState<string | null>(initialSetId);
   const [savingNotes, setSavingNotes] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [activeTool, setActiveTool] = useState('assistant');
   const [question, setQuestion] = useState('');
   const [asking, setAsking] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -234,10 +234,7 @@ export function LearningWorkspace({ onNavigate, initialTab = 'notes', initialSet
     if (!trimmed || asking) return;
     setAsking(true);
     setQuestion('');
-    setMessages((current) => [
-      ...current,
-      { role: 'user', text: trimmed },
-    ]);
+    setMessages((current) => [...current, { role: 'user', text: trimmed }]);
     const context = {
       notes: notes.trim() || undefined,
       files: files.filter((file) => file.extraction_status === 'text_extracted' && file.extracted_text.trim()).map((file) => ({
@@ -255,9 +252,15 @@ export function LearningWorkspace({ onNavigate, initialTab = 'notes', initialSet
     setAsking(false);
   };
 
+  const handleSetClick = (setId: string) => {
+    if (onOpenSet) onOpenSet(setId);
+    else setSelectedSetId(setId);
+  };
+
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-      <div className="mb-8 flex flex-wrap items-center gap-2 rounded-xl border border-white/5 bg-white/[0.02] p-2">
+      {/* Tab switcher */}
+      <div className="mb-6 flex items-center gap-2 rounded-xl border border-white/5 bg-white/[0.02] p-2">
         <button
           onClick={() => { setWorkspaceTab('notes'); setSelectedSetId(null); }}
           className={`rounded-lg px-4 py-2 text-sm font-semibold transition-all ${workspaceTab === 'notes' ? 'bg-cyan-500/20 text-cyan-100' : 'text-gray-400 hover:bg-white/5 hover:text-white'}`}
@@ -271,24 +274,31 @@ export function LearningWorkspace({ onNavigate, initialTab = 'notes', initialSet
           Karteikarten ({sets.length})
         </button>
       </div>
+
+      {/* Flashcards tab */}
       {workspaceTab === 'flashcards' && (
         selectedSetId ? (
           <StudySetView setId={selectedSetId} onBack={() => setSelectedSetId(null)} />
         ) : (
-          <section className="mb-8 rounded-2xl border border-white/5 bg-white/[0.02] p-5">
+          <section className="rounded-2xl border border-white/5 bg-white/[0.02] p-5">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <h2 className="font-semibold text-white">Deine Karteikarten</h2>
-                <p className="mt-1 text-xs text-gray-500">Wähle ein Set, um direkt im aktuellen Workspace zu lernen.</p>
+                <p className="mt-1 text-xs text-gray-500">Wähle ein Set, um direkt zu lernen.</p>
               </div>
               <button onClick={() => onNavigate('create')} className="rounded-lg bg-cyan-500 px-3 py-2 text-xs font-semibold text-white hover:bg-cyan-400">Set erstellen</button>
             </div>
             {sets.length === 0 ? (
-              <p className="mt-5 text-sm text-gray-500">Noch keine Karteikarten erstellt.</p>
+              <div className="mt-5 rounded-xl border border-dashed border-white/10 p-8 text-center">
+                <p className="text-sm text-gray-400">Noch keine Karteikarten erstellt.</p>
+                <button onClick={() => onNavigate('create')} className="mt-3 rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 px-4 py-2 text-xs font-semibold text-white hover:brightness-110">
+                  Erstes Set erstellen
+                </button>
+              </div>
             ) : (
               <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {sets.map((studySet) => (
-                  <button key={studySet.id} onClick={() => setSelectedSetId(studySet.id)} className="rounded-xl border border-white/10 bg-black/10 p-4 text-left hover:border-cyan-400/40 hover:bg-cyan-500/5">
+                  <button key={studySet.id} onClick={() => handleSetClick(studySet.id)} className="rounded-xl border border-white/10 bg-black/10 p-4 text-left hover:border-cyan-400/40 hover:bg-cyan-500/5">
                     <p className="font-medium text-white">{studySet.title}</p>
                     <p className="mt-1 text-xs text-gray-400">{studySet.card_count} Karten · {studySet.subject}</p>
                   </button>
@@ -298,212 +308,192 @@ export function LearningWorkspace({ onNavigate, initialTab = 'notes', initialSet
           </section>
         )
       )}
-      {workspaceTab === 'flashcards' && selectedSetId ? null : (
-      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
-        <div>
-          <div className="flex items-center gap-2 text-cyan-400">
-            <Sparkles size={17} />
-            <span className="text-xs font-semibold uppercase tracking-[0.18em]">Slearn Workspace</span>
-          </div>
-          <h1 className="mt-2 text-3xl font-bold text-white">Dein Lernraum für alles</h1>
-          <p className="mt-3 text-lg font-medium text-cyan-200">Hey, {getGreetingName(profile, user)}</p>
-          <p className="mt-2 max-w-2xl text-sm text-gray-400">
-            Sammle Notizen, Dokumente und Aufgaben an einem Ort. Die KI hilft dir später beim Verstehen,
-            Strukturieren und Üben.
-          </p>
-        </div>
-        <button
-          onClick={() => onNavigate('create')}
-          className="flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-cyan-500/20 transition-all hover:brightness-110"
-        >
-          <Sparkles size={17} /> Slearn-Set erstellen
-        </button>
-      </div>
-      )}
 
-      {workspaceTab === 'notes' && (
-      <>
-      <div className="mt-8 grid gap-3 sm:grid-cols-2">
-        {[
-          { id: 'assistant', icon: Bot, title: 'KI-Lernassistent', text: 'Fragen, Erklärungen und Hausaufgabenhilfe' },
-          { id: 'create', icon: Layers3, title: 'Slearn-Set erstellen', text: 'Lernkarten aus einem Thema oder deinen Notizen generieren' },
-        ].map(({ id, icon: Icon, title, text }) => (
-          <button key={id} onClick={() => id === 'assistant' ? setActiveTool(id) : onNavigate('create')} className={`rounded-xl border p-4 text-left transition-all ${activeTool === id ? 'border-cyan-400/40 bg-cyan-500/10' : 'border-white/5 bg-white/[0.02] hover:bg-white/[0.05]'}`}>
-            <Icon size={20} className="text-cyan-300" />
-            <p className="mt-3 text-sm font-semibold text-white">{title}</p>
-            <p className="mt-1 text-xs leading-5 text-gray-500">{text}</p>
-          </button>
-        ))}
-      </div>
-
-      <div className="mt-8 grid gap-5 lg:grid-cols-[1.35fr_0.65fr]">
-        <section className="rounded-2xl border border-white/5 bg-white/[0.02] p-5">
-          <div className="flex items-center justify-between">
+      {/* Notes tab */}
+      {workspaceTab === 'notes' && !selectedSetId && (
+        <>
+          {/* Header */}
+          <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
             <div>
-              <h2 className="font-semibold text-white">Notizen & Kontext</h2>
-              <p className="mt-1 text-xs text-gray-500">Alles hier kann später als Lernkontext dienen.</p>
+              <h1 className="text-2xl font-bold text-white">Dein Lernraum</h1>
+              <p className="mt-2 text-sm font-medium text-cyan-200">Hey, {getGreetingName(profile, user)}</p>
+              <p className="mt-1 max-w-2xl text-sm text-gray-400">
+                Notizen, Dokumente und Aufgaben an einem Ort. Die KI hilft beim Verstehen, Strukturieren und Üben.
+              </p>
             </div>
-            <FileText size={19} className="text-cyan-400" />
+            <button
+              onClick={() => onNavigate('create')}
+              className="flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-cyan-500/20 transition-all hover:brightness-110"
+            >
+              <Sparkles size={16} /> Set erstellen
+            </button>
           </div>
-          <textarea
-            value={notes}
-            onChange={(event) => setNotes(event.target.value)}
-            placeholder="Schreibe oder füge deine Mitschrift, Aufgabenstellung oder Fragen hier ein ..."
-            className="mt-4 min-h-72 w-full resize-y rounded-xl border border-white/10 bg-black/20 p-4 text-sm leading-6 text-gray-200 outline-none transition-all placeholder:text-gray-600 focus:border-cyan-400/50 focus:ring-2 focus:ring-cyan-400/10"
-          />
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs text-gray-500">
-            <span>{notes.length.toLocaleString()} Zeichen · privat in Slearn gespeichert</span>
-            <div className="flex items-center gap-3">
-              <button onClick={saveNotes} disabled={savingNotes} className="flex items-center gap-1 text-cyan-300 hover:text-cyan-200 disabled:opacity-50"><Save size={13} /> {savingNotes ? 'Speichert ...' : 'Speichern'}</button>
-              <button onClick={() => setNotes('')} className="text-gray-400 hover:text-white">Notizen leeren</button>
-            </div>
-          </div>
-        </section>
 
-        <section className="rounded-2xl border border-white/5 bg-white/[0.02] p-5">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="font-semibold text-white">Materialien</h2>
-              <p className="mt-1 text-xs text-gray-500">PDFs und Textdateien sammeln</p>
-            </div>
-            <Upload size={19} className="text-violet-400" />
-          </div>
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            accept=".pdf,.txt,.md,.csv,.json,.png,.jpg,.jpeg,.webp,application/pdf,text/plain,text/markdown,text/csv,application/json,image/png,image/jpeg,image/webp"
-            onChange={(event) => { void addFiles(event.target.files); event.target.value = ''; }}
-            className="hidden"
-          />
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            onDragOver={(event) => { event.preventDefault(); setDragActive(true); }}
-            onDragLeave={() => setDragActive(false)}
-            onDrop={(event) => {
-              event.preventDefault();
-              setDragActive(false);
-              void addFiles(event.dataTransfer.files);
-            }}
-            className={`mt-4 flex min-h-32 w-full flex-col items-center justify-center rounded-xl border border-dashed px-4 text-center transition-all ${
-              dragActive ? 'border-cyan-400 bg-cyan-500/10' : 'border-white/15 bg-white/[0.02] hover:border-cyan-400/40 hover:bg-cyan-500/5'
-            }`}
-          >
-            <Paperclip size={22} className="text-gray-400" />
-            <span className="mt-2 text-sm font-medium text-gray-300">{uploading ? 'Wird sicher gespeichert ...' : 'Dateien auswählen'}</span>
-            <span className="mt-1 text-xs text-gray-600">PDF, Foto oder Text · klicken oder ziehen · max. 10 MB</span>
-          </button>
-          {error && <p className="mt-3 rounded-lg border border-red-400/20 bg-red-500/10 px-3 py-2 text-xs text-red-300">{error}</p>}
-          <div className="mt-4 space-y-2">
-            {files.length === 0 && <p className="text-center text-xs text-gray-600">Noch keine Dateien hinzugefügt</p>}
-            {files.map((file) => (
-              <div key={file.id} className="flex items-center gap-3 rounded-lg bg-white/[0.03] px-3 py-2">
-                <FileText size={16} className="text-cyan-300" />
-                <span className="min-w-0 flex-1 truncate text-xs text-gray-300">{file.name}</span>
-                <span className={`text-[10px] ${file.extraction_status === 'text_extracted' ? 'text-emerald-300' : 'text-amber-300'}`}>
-                  {file.extraction_status === 'text_extracted' ? 'Text extrahiert' : 'Nicht im KI-Kontext'}
-                </span>
-                <button onClick={() => void removeFile(file)} className="text-gray-600 hover:text-white">
-                  <X size={14} />
-                </button>
+          {/* Notes + Files grid */}
+          <div className="mt-6 grid gap-5 lg:grid-cols-[1.35fr_0.65fr]">
+            <section className="rounded-2xl border border-white/5 bg-white/[0.02] p-5">
+              <div className="flex items-center justify-between">
+                <h2 className="font-semibold text-white">Notizen & Kontext</h2>
+                <FileText size={19} className="text-cyan-400" />
               </div>
-            ))}
-          </div>
-        </section>
-      </div>
+              <textarea
+                value={notes}
+                onChange={(event) => setNotes(event.target.value)}
+                placeholder="Schreibe oder füge deine Mitschrift, Aufgabenstellung oder Fragen hier ein ..."
+                className="mt-4 min-h-72 w-full resize-y rounded-xl border border-white/10 bg-black/20 p-4 text-sm leading-6 text-gray-200 outline-none transition-all placeholder:text-gray-600 focus:border-cyan-400/50 focus:ring-2 focus:ring-cyan-400/10"
+              />
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs text-gray-500">
+                <span>{notes.length.toLocaleString()} Zeichen · privat gespeichert</span>
+                <div className="flex items-center gap-3">
+                  <button onClick={saveNotes} disabled={savingNotes} className="flex items-center gap-1 text-cyan-300 hover:text-cyan-200 disabled:opacity-50"><Save size={13} /> {savingNotes ? 'Speichert ...' : 'Speichern'}</button>
+                  <button onClick={() => setNotes('')} className="text-gray-400 hover:text-white">Leeren</button>
+                </div>
+              </div>
+            </section>
 
-      <section className="mt-5 rounded-2xl border border-violet-400/20 bg-violet-500/[0.05] p-5">
-        <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
-          <div>
-            <h2 className="font-semibold text-white">Workspace analysieren</h2>
-            <p className="mt-1 max-w-2xl text-sm text-gray-400">Die KI startet erst auf Knopfdruck und verwendet Notizen sowie den tatsächlich extrahierten Text. Nicht lesbare PDFs und Fotos werden sichtbar abgewiesen.</p>
+            <section className="rounded-2xl border border-white/5 bg-white/[0.02] p-5">
+              <div className="flex items-center justify-between">
+                <h2 className="font-semibold text-white">Materialien</h2>
+                <Upload size={19} className="text-violet-400" />
+              </div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept=".pdf,.txt,.md,.csv,.json,.png,.jpg,.jpeg,.webp,application/pdf,text/plain,text/markdown,text/csv,application/json,image/png,image/jpeg,image/webp"
+                onChange={(event) => { void addFiles(event.target.files); event.target.value = ''; }}
+                className="hidden"
+              />
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                onDragOver={(event) => { event.preventDefault(); setDragActive(true); }}
+                onDragLeave={() => setDragActive(false)}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  setDragActive(false);
+                  void addFiles(event.dataTransfer.files);
+                }}
+                className={`mt-4 flex min-h-32 w-full flex-col items-center justify-center rounded-xl border border-dashed px-4 text-center transition-all ${
+                  dragActive ? 'border-cyan-400 bg-cyan-500/10' : 'border-white/15 bg-white/[0.02] hover:border-cyan-400/40 hover:bg-cyan-500/5'
+                }`}
+              >
+                <Paperclip size={22} className="text-gray-400" />
+                <span className="mt-2 text-sm font-medium text-gray-300">{uploading ? 'Wird gespeichert ...' : 'Dateien auswählen'}</span>
+                <span className="mt-1 text-xs text-gray-600">PDF, Foto oder Text · max. 10 MB</span>
+              </button>
+              {error && <p className="mt-3 rounded-lg border border-red-400/20 bg-red-500/10 px-3 py-2 text-xs text-red-300">{error}</p>}
+              <div className="mt-4 space-y-2">
+                {files.length === 0 && <p className="text-center text-xs text-gray-600">Noch keine Dateien</p>}
+                {files.map((file) => (
+                  <div key={file.id} className="flex items-center gap-3 rounded-lg bg-white/[0.03] px-3 py-2">
+                    <FileText size={16} className="text-cyan-300" />
+                    <span className="min-w-0 flex-1 truncate text-xs text-gray-300">{file.name}</span>
+                    <span className={`text-[10px] ${file.extraction_status === 'text_extracted' ? 'text-emerald-300' : 'text-amber-300'}`}>
+                      {file.extraction_status === 'text_extracted' ? 'Extrahiert' : 'Nicht lesbar'}
+                    </span>
+                    <button onClick={() => void removeFile(file)} className="text-gray-600 hover:text-white">
+                      <X size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </section>
           </div>
-          <button onClick={() => void runWorkspaceAnalysis()} disabled={analyzing || (!notes.trim() && analyzableFiles.length === 0)} className="flex items-center justify-center gap-2 rounded-xl bg-violet-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-400 disabled:cursor-not-allowed disabled:opacity-50">
-            {analyzing ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
-            {analyzing ? 'Analysiert ...' : 'Alles analysieren'}
-          </button>
-        </div>
-        {!notes.trim() && files.length > 0 && analyzableFiles.length === 0 && <p className="mt-3 text-xs text-amber-200">Die Dateien sind da, aber noch ohne lesbaren Text. Lade ein PDF oder eine Textdatei mit extrahierbarem Inhalt hoch.</p>}
-        {analysis && (
-          <div className="mt-5 space-y-4">
-            <div className="rounded-xl border border-white/10 bg-black/10 p-4">
-              <p className="text-sm leading-6 text-gray-300">{analysis.context_summary}</p>
-              {analysis.topics.length > 0 && <div className="mt-3 flex flex-wrap gap-2">{analysis.topics.map((topic) => <span key={topic.name} className="rounded-full bg-cyan-400/10 px-3 py-1 text-xs text-cyan-200">{topic.name}</span>)}</div>}
-            </div>
-            {analysis.tasks.length > 0 && <div>
-              <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-sm font-semibold text-white">Erkannte Aufgaben zur Bestätigung</h3><button onClick={() => void confirmTasks()} disabled={confirmingTasks} className="flex items-center gap-1 rounded-lg bg-cyan-500 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"><Check size={14} /> {confirmingTasks ? 'Speichert ...' : 'Fristen bestätigen'}</button></div>
-              <div className="mt-2 space-y-2">{analysis.tasks.map((task, index) => <div key={`${task.title}-${index}`} className="rounded-lg border border-white/10 bg-black/10 p-3"><p className="text-sm font-medium text-white">{task.title}</p><p className="mt-1 text-xs text-gray-400">{task.task_type === 'exam' ? 'Prüfung' : 'Aufgabe'} · {task.subject} · {task.due_date ? `Frist ${task.due_date}` : 'Frist offen'} · Sicherheit {Math.round(task.confidence * 100)}%</p></div>)}</div>
-            </div>}
-            {analysis.uncertainties.length > 0 && <div className="rounded-xl border border-amber-400/20 bg-amber-400/5 p-3"><div className="flex items-center justify-between gap-3"><p className="flex items-center gap-2 text-xs font-semibold text-amber-200"><AlertTriangle size={15} /> Offene Rückfragen</p><button onClick={() => setClarificationOpen(true)} className="flex items-center gap-1 rounded-lg bg-amber-400/15 px-2.5 py-1.5 text-xs font-semibold text-amber-100 hover:bg-amber-400/25"><MessageCircle size={13} /> Im Chat beantworten</button></div><ul className="mt-2 space-y-1 text-xs text-amber-100/80">{analysis.uncertainties.map((item) => <li key={item}>· {item}</li>)}</ul></div>}
-          </div>
-        )}
-      </section>
 
-      {clarificationOpen && analysis && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-4 sm:items-center" role="dialog" aria-modal="true" aria-labelledby="clarification-title">
-          <div className="flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-amber-400/20 bg-[#11121b] shadow-2xl">
-            <div className="flex items-start justify-between gap-4 border-b border-white/10 p-5">
+          {/* Analysis */}
+          <section className="mt-5 rounded-2xl border border-violet-400/20 bg-violet-500/[0.05] p-5">
+            <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
               <div>
-                <div className="flex items-center gap-2 text-amber-200"><MessageCircle size={18} /><h2 id="clarification-title" className="font-semibold">Rückfragen zur Analyse</h2></div>
-                <p className="mt-1 text-xs text-gray-400">Antworte direkt auf die offenen Punkte. Du kannst danach die Analyse erneut starten.</p>
+                <h2 className="font-semibold text-white">Workspace analysieren</h2>
+                <p className="mt-1 max-w-2xl text-sm text-gray-400">Die KI analysiert Notizen und extrahierten Text, gruppiert Themen und erkennt Aufgaben mit Fristen.</p>
               </div>
-              <button onClick={() => setClarificationOpen(false)} className="rounded-lg p-1 text-gray-400 hover:bg-white/10 hover:text-white" aria-label="Rückfragen schließen"><X size={18} /></button>
+              <button onClick={() => void runWorkspaceAnalysis()} disabled={analyzing || (!notes.trim() && analyzableFiles.length === 0)} className="flex items-center justify-center gap-2 rounded-xl bg-violet-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-400 disabled:cursor-not-allowed disabled:opacity-50">
+                {analyzing ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
+                {analyzing ? 'Analysiert ...' : 'Analysieren'}
+              </button>
             </div>
-            <div className="space-y-3 overflow-y-auto p-5">
-              <div className="rounded-xl border border-amber-400/15 bg-amber-400/5 p-3">
-                <p className="text-xs font-semibold text-amber-200">Noch offene Punkte</p>
-                <ul className="mt-2 space-y-1 text-sm text-amber-100/80">{analysis.uncertainties.map((item) => <li key={item}>· {item}</li>)}</ul>
+            {!notes.trim() && files.length > 0 && analyzableFiles.length === 0 && <p className="mt-3 text-xs text-amber-200">Dateien ohne lesbaren Text. Lade ein PDF oder eine Textdatei mit extrahierbarem Inhalt hoch.</p>}
+            {analysis && (
+              <div className="mt-5 space-y-4">
+                <div className="rounded-xl border border-white/10 bg-black/10 p-4">
+                  <p className="text-sm leading-6 text-gray-300">{analysis.context_summary}</p>
+                  {analysis.topics.length > 0 && <div className="mt-3 flex flex-wrap gap-2">{analysis.topics.map((topic) => <span key={topic.name} className="rounded-full bg-cyan-400/10 px-3 py-1 text-xs text-cyan-200">{topic.name}</span>)}</div>}
+                </div>
+                {analysis.tasks.length > 0 && <div>
+                  <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-sm font-semibold text-white">Erkannte Aufgaben</h3><button onClick={() => void confirmTasks()} disabled={confirmingTasks} className="flex items-center gap-1 rounded-lg bg-cyan-500 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"><Check size={14} /> {confirmingTasks ? 'Speichert ...' : 'Fristen bestätigen'}</button></div>
+                  <div className="mt-2 space-y-2">{analysis.tasks.map((task, index) => <div key={`${task.title}-${index}`} className="rounded-lg border border-white/10 bg-black/10 p-3"><p className="text-sm font-medium text-white">{task.title}</p><p className="mt-1 text-xs text-gray-400">{task.task_type === 'exam' ? 'Prüfung' : 'Aufgabe'} · {task.subject} · {task.due_date ? `Frist ${task.due_date}` : 'Frist offen'} · Sicherheit {Math.round(task.confidence * 100)}%</p></div>)}</div>
+                </div>}
+                {analysis.uncertainties.length > 0 && <div className="rounded-xl border border-amber-400/20 bg-amber-400/5 p-3"><div className="flex items-center justify-between gap-3"><p className="flex items-center gap-2 text-xs font-semibold text-amber-200"><AlertTriangle size={15} /> Offene Rückfragen</p><button onClick={() => setClarificationOpen(true)} className="flex items-center gap-1 rounded-lg bg-amber-400/15 px-2.5 py-1.5 text-xs font-semibold text-amber-100 hover:bg-amber-400/25"><MessageCircle size={13} /> Beantworten</button></div><ul className="mt-2 space-y-1 text-xs text-amber-100/80">{analysis.uncertainties.map((item) => <li key={item}>· {item}</li>)}</ul></div>}
               </div>
-              {clarificationMessages.map((message, index) => (
+            )}
+          </section>
+
+          {clarificationOpen && analysis && (
+            <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-4 sm:items-center" role="dialog" aria-modal="true" aria-labelledby="clarification-title">
+              <div className="flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-amber-400/20 bg-[#11121b] shadow-2xl">
+                <div className="flex items-start justify-between gap-4 border-b border-white/10 p-5">
+                  <div>
+                    <div className="flex items-center gap-2 text-amber-200"><MessageCircle size={18} /><h2 id="clarification-title" className="font-semibold">Rückfragen zur Analyse</h2></div>
+                    <p className="mt-1 text-xs text-gray-400">Antworte direkt auf die offenen Punkte.</p>
+                  </div>
+                  <button onClick={() => setClarificationOpen(false)} className="rounded-lg p-1 text-gray-400 hover:bg-white/10 hover:text-white" aria-label="Schließen"><X size={18} /></button>
+                </div>
+                <div className="space-y-3 overflow-y-auto p-5">
+                  <div className="rounded-xl border border-amber-400/15 bg-amber-400/5 p-3">
+                    <p className="text-xs font-semibold text-amber-200">Noch offene Punkte</p>
+                    <ul className="mt-2 space-y-1 text-sm text-amber-100/80">{analysis.uncertainties.map((item) => <li key={item}>· {item}</li>)}</ul>
+                  </div>
+                  {clarificationMessages.map((message, index) => (
+                    <div key={`${message.role}-${index}`} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                      <p className={`max-w-[90%] rounded-xl px-3 py-2 text-sm ${message.role === 'user' ? 'bg-cyan-500/20 text-cyan-100' : 'bg-white/[0.05] text-gray-300'}`}>{message.text}</p>
+                    </div>
+                  ))}
+                  {clarificationAsking && <div className="flex items-center gap-2 text-xs text-gray-500"><Loader2 size={14} className="animate-spin" /> Antwort wird eingeordnet ...</div>}
+                </div>
+                <div className="flex gap-2 border-t border-white/10 p-4">
+                  <input value={clarificationInput} onChange={(event) => setClarificationInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void askClarification(); }} placeholder="z. B. Die Prüfung ist am 15. Juni ..." className="min-w-0 flex-1 rounded-xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none placeholder:text-gray-600 focus:border-amber-400/50" />
+                  <button onClick={() => void askClarification()} disabled={clarificationAsking || !clarificationInput.trim()} className="rounded-xl bg-amber-400 px-4 text-black transition-all hover:bg-amber-300 disabled:opacity-50" aria-label="Senden"><Send size={17} /></button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* AI Assistant chat */}
+          <section className="mt-5 rounded-2xl border border-cyan-400/10 bg-gradient-to-br from-cyan-500/[0.07] to-blue-500/[0.03] p-5">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-cyan-400/15">
+                <Bot size={21} className="text-cyan-300" />
+              </div>
+              <div>
+                <h2 className="font-semibold text-white">KI-Lernassistent</h2>
+                <p className="text-xs text-gray-400">Erklärungen, Zusammenfassungen und Hausaufgabenhilfe.</p>
+              </div>
+            </div>
+            <div className="mt-4 max-h-56 space-y-3 overflow-y-auto pr-1">
+              {messages.map((message, index) => (
                 <div key={`${message.role}-${index}`} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                  <p className={`max-w-[90%] rounded-xl px-3 py-2 text-sm ${message.role === 'user' ? 'bg-cyan-500/20 text-cyan-100' : 'bg-white/[0.05] text-gray-300'}`}>{message.text}</p>
+                  <p className={`max-w-2xl rounded-xl px-3 py-2 text-sm ${
+                    message.role === 'user' ? 'bg-cyan-500/20 text-cyan-100' : 'bg-white/[0.05] text-gray-300'
+                  }`}>{message.text}</p>
                 </div>
               ))}
-              {clarificationAsking && <div className="flex items-center gap-2 text-xs text-gray-500"><Loader2 size={14} className="animate-spin" /> Antwort wird eingeordnet ...</div>}
             </div>
-            <div className="flex gap-2 border-t border-white/10 p-4">
-              <input value={clarificationInput} onChange={(event) => setClarificationInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void askClarification(); }} placeholder="z. B. Die Prüfung ist am 15. Juni ..." className="min-w-0 flex-1 rounded-xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none placeholder:text-gray-600 focus:border-amber-400/50" />
-              <button onClick={() => void askClarification()} disabled={clarificationAsking || !clarificationInput.trim()} className="rounded-xl bg-amber-400 px-4 text-black transition-all hover:bg-amber-300 disabled:opacity-50" aria-label="Antwort senden"><Send size={17} /></button>
+            <div className="mt-4 flex gap-2">
+              <input
+                value={question}
+                onChange={(event) => setQuestion(event.target.value)}
+                onKeyDown={(event) => { if (event.key === 'Enter') void askAssistant(); }}
+                placeholder="z. B. Erkläre mir dieses Thema einfach ..."
+                className="min-w-0 flex-1 rounded-xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none placeholder:text-gray-600 focus:border-cyan-400/50"
+              />
+              <button onClick={() => void askAssistant()} disabled={asking} className="rounded-xl bg-cyan-500 px-4 text-white transition-all hover:bg-cyan-400 disabled:opacity-50" aria-label="Senden">
+                <Send size={17} />
+              </button>
             </div>
-          </div>
-        </div>
-      )}
+          </section>
 
-      <section className="mt-5 rounded-2xl border border-cyan-400/10 bg-gradient-to-br from-cyan-500/[0.07] to-blue-500/[0.03] p-5">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-cyan-400/15">
-            <Bot size={21} className="text-cyan-300" />
-          </div>
-          <div>
-            <h2 className="font-semibold text-white">Slearn Lernassistent</h2>
-            <p className="text-xs text-gray-400">Frage nach Erklärungen, Zusammenfassungen oder einem Lernplan.</p>
-          </div>
-        </div>
-        <div className="mt-4 max-h-56 space-y-3 overflow-y-auto pr-1">
-          {messages.map((message, index) => (
-            <div key={`${message.role}-${index}`} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              <p className={`max-w-2xl rounded-xl px-3 py-2 text-sm ${
-                message.role === 'user' ? 'bg-cyan-500/20 text-cyan-100' : 'bg-white/[0.05] text-gray-300'
-              }`}>{message.text}</p>
-            </div>
-          ))}
-        </div>
-        <div className="mt-4 flex gap-2">
-          <input
-            value={question}
-            onChange={(event) => setQuestion(event.target.value)}
-            onKeyDown={(event) => { if (event.key === 'Enter') void askAssistant(); }}
-            placeholder="z. B. Erkläre mir dieses Thema einfach ..."
-            className="min-w-0 flex-1 rounded-xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none placeholder:text-gray-600 focus:border-cyan-400/50"
-          />
-          <button onClick={() => void askAssistant()} disabled={asking} className="rounded-xl bg-cyan-500 px-4 text-white transition-all hover:bg-cyan-400 disabled:opacity-50" aria-label="Frage senden">
-            <Send size={17} />
-          </button>
-        </div>
-      </section>
-
-      <LearningPlanner hasAnalyzedMaterial={Boolean(analysis)} />
-      </>
+          <LearningPlanner hasAnalyzedMaterial={Boolean(analysis)} />
+        </>
       )}
     </div>
   );

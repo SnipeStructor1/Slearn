@@ -4,7 +4,7 @@ import { useAuth } from '@/lib/auth-context';
 import { supabase } from '@/lib/supabase';
 import { userError } from '@/lib/error-text';
 
-export function Profile({ onNavigate }: { onNavigate?: (page: 'admin') => void }) {
+export function Profile({ onNavigate }: { onNavigate?: (page: 'admin' | 'workspace') => void }) {
   const { user, profile, profileError, refreshProfile, isAdmin } = useAuth();
   const [editing, setEditing] = useState(false);
   const [displayName, setDisplayName] = useState(profile?.display_name || '');

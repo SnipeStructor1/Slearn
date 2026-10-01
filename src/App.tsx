@@ -3,14 +3,13 @@ import { AuthProvider, useAuth } from '@/lib/auth-context';
 import { Navbar } from '@/components/Navbar';
 import { AuthModal } from '@/components/AuthModal';
 import { Landing } from '@/pages/Landing';
-import { Dashboard } from '@/pages/Dashboard';
 import { CreateSet } from '@/pages/CreateSet';
 import { StudySetView } from '@/pages/StudySetView';
 import { Profile } from '@/pages/Profile';
 import { AdminPage } from '@/pages/AdminPage';
 import { LearningWorkspace } from '@/pages/LearningWorkspace';
 
-type Page = 'home' | 'workspace' | 'dashboard' | 'create' | 'study' | 'profile' | 'admin';
+type Page = 'home' | 'workspace' | 'create' | 'profile' | 'admin';
 
 function AppContent() {
   const { user, isAdmin, loading } = useAuth();
@@ -19,26 +18,19 @@ function AppContent() {
   const [currentSetId, setCurrentSetId] = useState<string | null>(null);
   const [workspaceTab, setWorkspaceTab] = useState<'notes' | 'flashcards'>('notes');
 
-  // Redirect to dashboard when user signs in
   useEffect(() => {
-    if (user && page === 'home') {
-      setPage('workspace');
-    }
-    if (!user && (page === 'workspace' || page === 'dashboard' || page === 'create' || page === 'profile' || page === 'admin')) {
-      setPage('home');
-    }
-    if (user && !isAdmin && page === 'admin') {
-      setPage('dashboard');
-    }
+    if (user && page === 'home') setPage('workspace');
+    if (!user && (page === 'workspace' || page === 'create' || page === 'profile' || page === 'admin')) setPage('home');
+    if (user && !isAdmin && page === 'admin') setPage('workspace');
   }, [user, isAdmin, page]);
 
   const handleNavigate = (target: Page) => {
-    if ((target === 'dashboard' || target === 'create' || target === 'profile' || target === 'study' || target === 'admin') && !user) {
+    if ((target === 'create' || target === 'profile' || target === 'admin') && !user) {
       setAuthOpen(true);
       return;
     }
     if (target === 'admin' && !isAdmin) {
-      setPage('dashboard');
+      setPage('workspace');
       return;
     }
     setPage(target);
@@ -46,12 +38,8 @@ function AppContent() {
 
   const handleOpenSet = (setId: string) => {
     setCurrentSetId(setId);
-    if (user) {
-      setWorkspaceTab('flashcards');
-      setPage('workspace');
-    } else {
-      setPage('study');
-    }
+    setWorkspaceTab('flashcards');
+    setPage('workspace');
   };
 
   const handleCreated = (setId: string) => {
@@ -80,19 +68,9 @@ function AppContent() {
         {page === 'home' && (
           <Landing
             onGetStarted={() => {
-              if (user) {
-                handleNavigate('workspace');
-              } else {
-                setAuthOpen(true);
-              }
+              if (user) handleNavigate('workspace');
+              else setAuthOpen(true);
             }}
-          />
-        )}
-
-        {page === 'dashboard' && user && (
-          <Dashboard
-            onNavigate={(p) => handleNavigate(p as Page)}
-            onOpenSet={handleOpenSet}
           />
         )}
 
@@ -100,21 +78,13 @@ function AppContent() {
           <LearningWorkspace
             initialTab={workspaceTab}
             initialSetId={currentSetId}
-            onNavigate={(target) => handleNavigate(target)}
+            onNavigate={(target) => handleNavigate(target as Page)}
+            onOpenSet={handleOpenSet}
           />
         )}
 
         {page === 'create' && user && (
-          <CreateSet
-            onCreated={handleCreated}
-          />
-        )}
-
-        {page === 'study' && currentSetId && (
-          <StudySetView
-            setId={currentSetId}
-            onBack={() => { setCurrentSetId(null); setPage(user ? 'workspace' : 'home'); }}
-          />
+          <CreateSet onCreated={handleCreated} />
         )}
 
         {page === 'profile' && user && <Profile onNavigate={handleNavigate} />}
