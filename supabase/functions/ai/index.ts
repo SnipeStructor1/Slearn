@@ -1,4 +1,4 @@
-// Slearn central AI edge function
+// Slernavia central AI edge function
 // All AI actions go through this single endpoint.
 // The API key is read server-side from app_settings — never sent to the client.
 
@@ -374,7 +374,7 @@ function validateTutorResponse(data: unknown): { reply: string; suggestions?: st
 // --- Prompt builders ---
 
 function buildSystemPrompt(action: AIAction): string {
-  const base = "You are Slearn's AI learning assistant. You help students study effectively. All responses must be valid JSON. Do not include markdown code fences or any text outside the JSON object.";
+  const base = "You are Slernavia's AI learning assistant. You help students study effectively. All responses must be valid JSON. Do not include markdown code fences or any text outside the JSON object.";
   switch (action) {
     case "analyze_workspace":
       return `${base} Analyze all provided notes and uploaded material. Never invent a date: use null when a deadline is not reliably stated and add a concrete question to uncertainties. Group related material into topics and produce a compact context summary. Respond with: {"context_summary": string, "topics": [{"name": string, "details": string, "source_names": string[]}], "tasks": [{"title": string, "description": string, "subject": string, "task_type": "assignment"|"exam", "due_date": "YYYY-MM-DD"|null, "estimated_hours": number|null, "confidence": number}], "uncertainties": string[]}`;

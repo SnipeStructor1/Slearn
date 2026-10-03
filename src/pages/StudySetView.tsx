@@ -189,7 +189,7 @@ export function StudySetView({ setId, onBack }: Props) {
                   {set.subject}
                 </span>
                 <span className="flex items-center gap-1 text-xs text-gray-500">
-                  <Lock size={12} /> Private
+                  <Lock size={12} /> Privat
                 </span>
               </div>
               <h1 className="mt-2 text-2xl font-bold text-white">{set.title}</h1>
@@ -210,7 +210,7 @@ export function StudySetView({ setId, onBack }: Props) {
                 <button
                   onClick={handleDelete}
                   className="rounded-lg border border-white/10 bg-white/5 p-2 text-gray-400 hover:bg-red-500/10 hover:text-red-400 transition-all"
-                  title="Delete set"
+                  title="Lernset löschen"
                 >
                   <Trash2 size={15} />
                 </button>
@@ -255,7 +255,7 @@ export function StudySetView({ setId, onBack }: Props) {
             onClick={() => setMode('overview')}
             className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-gray-300 hover:bg-white/10 transition-all"
           >
-            <ArrowLeft size={15} /> Overview
+            <ArrowLeft size={15} /> Übersicht
           </button>
         </div>
       )}
@@ -273,10 +273,10 @@ export function StudySetView({ setId, onBack }: Props) {
                 </div>
                 <div>
                   <h3 className="text-base font-semibold text-white">Flashcards</h3>
-                  <p className="text-sm text-gray-400">Flip cards with SRS spaced repetition</p>
+                  <p className="text-sm text-gray-400">Karteikarten mit Wiederholungslogik</p>
                 </div>
               </div>
-              <p className="mt-3 text-xs text-gray-500">{cards.length} cards available</p>
+              <p className="mt-3 text-xs text-gray-500">{cards.length} Karten verfügbar</p>
             </button>
 
             <button
@@ -292,7 +292,7 @@ export function StudySetView({ setId, onBack }: Props) {
                   <p className="text-sm text-gray-400">Multiple choice & fill-in-the-blank</p>
                 </div>
               </div>
-              <p className="mt-3 text-xs text-gray-500">Auto-generated from this set</p>
+              <p className="mt-3 text-xs text-gray-500">Automatisch aus diesem Lernset erstellt</p>
             </button>
           </div>
 
@@ -311,7 +311,7 @@ export function StudySetView({ setId, onBack }: Props) {
                 onClick={() => setTutorOpen(true)}
                 className="flex items-center gap-1.5 rounded-lg border border-violet-500/30 bg-violet-500/10 px-3 py-2 text-sm text-violet-300 hover:bg-violet-500/20 transition-all"
               >
-                <MessageSquare size={15} /> Ask AI Tutor
+                <MessageSquare size={15} /> KI-Tutor fragen
               </button>
             </div>
           </div>
@@ -365,7 +365,7 @@ export function StudySetView({ setId, onBack }: Props) {
         className="fixed bottom-6 right-6 z-30 flex items-center gap-2 rounded-full bg-gradient-to-r from-violet-500 to-purple-600 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-violet-500/30 transition-all hover:brightness-110 hover:shadow-violet-500/40"
       >
         <MessageSquare size={18} />
-        AI Tutor
+        KI-Tutor
       </button>
 
       <AiTutor
@@ -399,7 +399,7 @@ export function StudySetView({ setId, onBack }: Props) {
                 <X size={18} />
               </button>
             </div>
-            <label className="mt-5 block text-sm font-medium text-gray-300" htmlFor="new-card-front">Front / question</label>
+            <label className="mt-5 block text-sm font-medium text-gray-300" htmlFor="new-card-front">Vorderseite / Frage</label>
             <textarea
               id="new-card-front"
               value={newCardFront}
@@ -409,7 +409,7 @@ export function StudySetView({ setId, onBack }: Props) {
               maxLength={2000}
               className="mt-2 w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none focus:border-cyan-400/50"
             />
-            <label className="mt-4 block text-sm font-medium text-gray-300" htmlFor="new-card-back">Back / answer</label>
+            <label className="mt-4 block text-sm font-medium text-gray-300" htmlFor="new-card-back">Rückseite / Antwort</label>
             <textarea
               id="new-card-back"
               value={newCardBack}
@@ -426,7 +426,7 @@ export function StudySetView({ setId, onBack }: Props) {
                 onClick={() => setAddCardOpen(false)}
                 className="rounded-lg border border-white/10 px-4 py-2 text-sm text-gray-300 hover:bg-white/5"
               >
-                Cancel
+                Abbrechen
               </button>
               <button
                 type="submit"

@@ -17,7 +17,7 @@ export function Navbar({ currentPage, onNavigate, onSignIn }: Props) {
   const [profileOpen, setProfileOpen] = useState(false);
 
   const navItems: { key: Page; label: string; icon: typeof Brain }[] = [
-    { key: 'workspace', label: 'Workspace', icon: Brain },
+    { key: 'workspace', label: 'Lernraum', icon: Brain },
     { key: 'create', label: 'Erstellen', icon: Plus },
     ...(user && isAdmin ? [{ key: 'admin', label: 'Admin', icon: Shield }] as { key: Page; label: string; icon: typeof Brain }[] : []),
   ];
@@ -59,7 +59,7 @@ export function Navbar({ currentPage, onNavigate, onSignIn }: Props) {
             <div className="relative">
               <button onClick={() => setProfileOpen((open) => !open)} aria-expanded={profileOpen} className={`flex items-center gap-2 rounded-xl border px-2.5 py-1.5 text-sm transition-all ${profileOpen || currentPage === 'profile' ? 'border-cyan-400/30 bg-cyan-400/10 text-white' : 'border-white/10 bg-white/[0.03] text-gray-300 hover:border-white/20 hover:bg-white/[0.06]'}`}>
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-cyan-400 to-blue-600 text-xs font-bold text-white">{(profile?.display_name || user.email || '?').charAt(0).toUpperCase()}</div>
-                <span className="max-w-28 truncate text-left"><span className="block text-[10px] uppercase tracking-wider text-gray-500">Dein Slearn</span><span className="block max-w-24 truncate font-semibold">{profile?.display_name || 'Profil'}</span></span>
+                <span className="max-w-28 truncate text-left"><span className="block text-[10px] uppercase tracking-wider text-gray-500">Dein Slernavia</span><span className="block max-w-24 truncate font-semibold">{profile?.display_name || 'Profil'}</span></span>
                 <ChevronDown size={15} className={`transition-transform ${profileOpen ? 'rotate-180' : ''}`} />
               </button>
               {profileOpen && <div className="absolute right-0 top-full z-50 mt-2 w-56 rounded-xl border border-white/10 bg-[#15151f] p-2 shadow-2xl shadow-black/40">
@@ -74,7 +74,7 @@ export function Navbar({ currentPage, onNavigate, onSignIn }: Props) {
               onClick={onSignIn}
               className="rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 px-5 py-2 text-sm font-semibold text-white shadow-lg shadow-cyan-500/20 transition-all hover:shadow-cyan-500/30 hover:brightness-110"
             >
-              Sign In
+              Anmelden
             </button>
           )}
         </div>
@@ -120,7 +120,7 @@ export function Navbar({ currentPage, onNavigate, onSignIn }: Props) {
                   className="flex w-full items-center gap-3 rounded-lg px-4 py-3 text-sm font-medium text-gray-400 hover:bg-white/5"
                 >
                   <LogOut size={18} />
-                  Sign Out
+                  Abmelden
                 </button>
               </>
             ) : (
@@ -128,7 +128,7 @@ export function Navbar({ currentPage, onNavigate, onSignIn }: Props) {
                 onClick={() => { onSignIn(); setMobileOpen(false); }}
                 className="flex w-full items-center justify-center rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 px-4 py-3 text-sm font-semibold text-white"
               >
-                Sign In
+                Anmelden
               </button>
             )}
           </div>

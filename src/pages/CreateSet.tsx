@@ -70,7 +70,7 @@ export function CreateSet({ onCreated }: Props) {
       }
 
       if (!input) {
-        setError('Please enter a topic or paste some text');
+        setError('Bitte gib ein Thema ein oder füge Text ein');
         setLoading(false);
         return;
       }
@@ -94,7 +94,7 @@ export function CreateSet({ onCreated }: Props) {
       setGenerated(generatedSet);
       setStep('preview');
     } catch {
-      setError('Failed to generate study set. Please try again.');
+      setError('Das Lernset konnte nicht erstellt werden. Bitte versuche es erneut.');
     }
     setLoading(false);
   };
@@ -124,7 +124,7 @@ export function CreateSet({ onCreated }: Props) {
         .single();
 
       if (setError2 || !setData) {
-        setError('Failed to save study set');
+        setError('Das Lernset konnte nicht gespeichert werden');
         setSaving(false);
         return;
       }
@@ -137,14 +137,14 @@ export function CreateSet({ onCreated }: Props) {
 
       const { error: cardError } = await supabase.from('flashcards').insert(cards);
       if (cardError) {
-        setError('Failed to save flashcards');
+        setError('Die Karteikarten konnten nicht gespeichert werden');
         setSaving(false);
         return;
       }
 
       onCreated(setData.id);
     } catch {
-      setError('Something went wrong. Please try again.');
+      setError('Etwas ist schiefgelaufen. Bitte versuche es erneut.');
     }
     setSaving(false);
   };
@@ -164,7 +164,7 @@ export function CreateSet({ onCreated }: Props) {
           onClick={handleRegenerate}
           className="flex items-center gap-2 text-sm text-gray-400 hover:text-white transition-all"
         >
-          <ArrowLeft size={16} /> Back to edit
+          <ArrowLeft size={16} /> Zurück zur Bearbeitung
         </button>
 
         <div className="mt-6 rounded-2xl border border-white/5 bg-white/[0.02] p-6">
@@ -175,7 +175,7 @@ export function CreateSet({ onCreated }: Props) {
             <div className="flex-1">
               <div className="flex items-center gap-2">
                 <Sparkles size={20} className={theme.accent} />
-                <span className={`text-sm font-medium ${theme.accent}`}>AI Generated Preview</span>
+                <span className={`text-sm font-medium ${theme.accent}`}>KI-Vorschau</span>
               </div>
               <h1 className="mt-2 text-2xl font-bold text-white">{generated.title}</h1>
               <p className="mt-1 text-sm text-gray-400">{generated.description}</p>
@@ -187,7 +187,7 @@ export function CreateSet({ onCreated }: Props) {
         <div className="mt-4 rounded-2xl border border-white/5 bg-white/[0.02] p-5">
           <div className="flex items-center gap-2">
             <Palette size={16} className={theme.accent} />
-            <h3 className="text-sm font-semibold text-white">Customize Appearance</h3>
+            <h3 className="text-sm font-semibold text-white">Darstellung anpassen</h3>
           </div>
 
           {/* Color picker */}
@@ -252,7 +252,7 @@ export function CreateSet({ onCreated }: Props) {
             <h3 className="text-sm font-semibold text-white">
               {generated.cards.length} Flashcards
             </h3>
-            <span className="text-xs text-gray-500">Swipe or click to flip</span>
+            <span className="text-xs text-gray-500">Klicke zum Umdrehen</span>
           </div>
 
           <div className="mt-4 space-y-3">
@@ -292,7 +292,7 @@ export function CreateSet({ onCreated }: Props) {
             className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-cyan-500/20 transition-all hover:brightness-110 disabled:opacity-50"
           >
             {saving ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
-            {saving ? 'Saving...' : 'Save Study Set'}
+            {saving ? 'Speichert ...' : 'Lernset speichern'}
           </button>
         </div>
       </div>

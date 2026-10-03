@@ -89,7 +89,7 @@ export function Landing({ onGetStarted }: Props) {
             </h1>
 
             <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-gray-400">
-              Slearn verwandelt deine Notizen, Dokumente und Hausaufgaben in eine strukturierte Lernwelt:
+              Slernavia verwandelt deine Notizen, Dokumente und Hausaufgaben in eine strukturierte Lernwelt:
               Erklärungen, Lernpläne, Karteikarten und Quizze – alles aus deinem Material generiert und
               immer privat in deinem Workspace.
             </p>

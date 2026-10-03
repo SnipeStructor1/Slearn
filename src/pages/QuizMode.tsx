@@ -111,7 +111,7 @@ export function QuizMode({ cards, onAskTutor }: Props) {
       if (cancelled) return;
       if (result.success) {
         const aiQuestions = result.data.questions.slice(0, requestedCount);
-        const normalizedQuestions = aiQuestions.map((question, index) => {
+        const normalizedQuestions: Question[] = aiQuestions.map((question, index) => {
           const options = shuffleArray(question.options);
           const correctAnswer = question.options[question.correct_index] || question.options[0];
           return {
@@ -142,8 +142,8 @@ export function QuizMode({ cards, onAskTutor }: Props) {
   if (questionLimit === null) {
     return (
       <div className="mx-auto mt-8 max-w-2xl rounded-2xl border border-white/10 bg-white/[0.02] p-8">
-        <h2 className="text-xl font-semibold text-white">Choose quiz length</h2>
-        <p className="mt-2 text-sm text-gray-400">{cards.length} flashcards available</p>
+        <h2 className="text-xl font-semibold text-white">Quizlänge wählen</h2>
+        <p className="mt-2 text-sm text-gray-400">{cards.length} Karteikarten verfügbar</p>
         <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
           {[10, 20, 50].filter((count) => count < cards.length).map((count) => (
             <button
@@ -173,7 +173,7 @@ export function QuizMode({ cards, onAskTutor }: Props) {
     return (
       <div className="mt-8 flex flex-col items-center justify-center py-20">
         <Loader2 size={32} className="animate-spin text-cyan-400" />
-        <p className="mt-4 text-sm text-gray-400">Generating quiz questions...</p>
+        <p className="mt-4 text-sm text-gray-400">Quizfragen werden erstellt ...</p>
       </div>
     );
   }
@@ -248,7 +248,7 @@ export function QuizMode({ cards, onAskTutor }: Props) {
             onClick={handleRestart}
             className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-cyan-500/20 transition-all hover:brightness-110 mx-auto"
           >
-            <RotateCcw size={18} /> Retake Quiz
+            <RotateCcw size={18} /> Quiz wiederholen
           </button>
         </div>
       </div>
@@ -263,7 +263,7 @@ export function QuizMode({ cards, onAskTutor }: Props) {
       <div className="mb-6">
         <div className="flex items-center justify-between text-sm">
           <span className="text-gray-400">Question {current + 1} of {questions.length}</span>
-          <span className="text-gray-400">Score: {score}</span>
+          <span className="text-gray-400">Punktzahl: {score}</span>
         </div>
         <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/5">
           <div
@@ -284,7 +284,7 @@ export function QuizMode({ cards, onAskTutor }: Props) {
             }`}>
               {question.type === 'multiple-choice'
                 ? 'Multiple Choice'
-                : question.type === 'typing' ? 'Typing' : 'Fill in the Blank'}
+                : question.type === 'typing' ? 'Eingabe' : 'Lückentext'}
             </span>
           </div>
           <p className="text-xl font-semibold text-white">{question.prompt}</p>
